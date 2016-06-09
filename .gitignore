@@ -1,17 +1,41 @@
+# use glob syntax.
+syntax: glob
+*.ser
 *.class
-*.log
+*~
+*.bak
+#*.off
+*.old
 
-# sbt specific
-.cache
-.history
-.lib/
-dist/*
-target/
-lib_managed/
-src_managed/
-project/boot/
-project/plugins/project/
-
-# Scala-IDE specific
+# eclipse conf file
+.settings
+.classpath
+.project
+.manager
 .scala_dependencies
-.worksheet
+
+# idea
+.idea
+*.iml
+
+# building
+target
+build
+null
+tmp*
+temp*
+dist
+test-output
+build.log
+
+# other scm
+.svn
+.CVS
+.hg*
+
+# switch to regexp syntax.
+#  syntax: regexp
+#  ^\.pc/
+
+#SHITTY output not in target directory
+build.log
