@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.iohk</groupId>
   <artifactId>iodb</artifactId>
-  <version>1.0-SNAPSHOT</version>
+  <version></version>
   <name>${project.artifactId}</name>
   <description>Storage for Scorex</description>
   <inceptionYear>2016</inceptionYear>
