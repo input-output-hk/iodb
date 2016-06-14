@@ -10,13 +10,14 @@ import java.util
   */
 class TrivialStore(
                     val dir: File,
-                    val keySize: Int = 32
+                    val keySize: Int = 32,
+                    val keepLastN: Int = 10
                   ) extends Store {
 
 
   protected var _lastVersion: Long = 0L
 
-  protected var data = new util.TreeMap[K, V](ByteArrayComparator.INSTANCE)
+  protected var data = new util.HashMap[K, V]()
 
 
   {
@@ -26,7 +27,7 @@ class TrivialStore(
       val lastFile = files.sortBy(_.getName.toInt).last
       _lastVersion = lastFile.getName.toInt
       val in = new ObjectInputStream(new FileInputStream(this.lastFile()))
-      data = in.readObject().asInstanceOf[util.TreeMap[K, V]]
+      data = in.readObject().asInstanceOf[util.HashMap[K, V]]
       in.close()
     }
   }
@@ -43,6 +44,18 @@ class TrivialStore(
     if (_lastVersion >= versionID) {
       throw new IllegalArgumentException("VersionID not incremented")
     }
+
+    //check nulls before proceeding with any operations
+    for(a <- toRemove){
+      if(a==null)throw new NullPointerException()
+    }
+    for(a <- toUpdate){
+      if(a==null || a._1==null || a._2==null )
+        throw new NullPointerException()
+      if(a._1.data.length!=keySize)
+        throw new IllegalArgumentException("key has wrong size, expected "+keySize+", got "+a._1.data.length)
+    }
+
     _lastVersion = versionID
 
     for (key <- toRemove) {
@@ -81,7 +94,7 @@ class TrivialStore(
 
     _lastVersion = versionID
     val in = new ObjectInputStream(new FileInputStream(lastFile()))
-    data = in.readObject().asInstanceOf[util.TreeMap[K, V]]
+    data = in.readObject().asInstanceOf[util.HashMap[K, V]]
     in.close()
 
     //delete newer files
@@ -92,7 +105,12 @@ class TrivialStore(
   }
 
   override def clean() {
-    //TODO
+    //keep last N versions
+    dir.listFiles()
+        .filter(_.getName.matches("[0-9]+"))
+        .sortBy(_.getName.toInt)
+        .dropRight(keepLastN) //do not delete last N versions
+        .foreach(_.delete())
   }
 
   override def cleanStop() {

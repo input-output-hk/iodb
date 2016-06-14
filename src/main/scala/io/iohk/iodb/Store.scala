@@ -7,8 +7,8 @@ import java.util
   */
 trait Store {
 
-  type K = Array[Byte]
-  type V = Array[Byte]
+  type K = ByteArrayWrapper
+  type V = ByteArrayWrapper
 
   /** returns value associated with key */
   def get(key: K): V
@@ -37,7 +37,7 @@ trait Store {
   /** update records and move to new version */
   def update(versionID: Long, toRemove: Iterable[K], toUpdate: Iterable[(K, V)])
 
-  /** reverts to older version. Higher (newer) versions are discarted and their versionID can be reused */
+  /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
   def rollback(versionID: Long)
 
   def close()
