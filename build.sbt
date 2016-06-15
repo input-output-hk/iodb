@@ -1,3 +1,5 @@
+import _root_.sbt.Keys._
+
 organization := "io.iohk"
 
 name := "iodb"
@@ -18,7 +20,8 @@ licenses := Seq("CC0" -> url("https://creativecommons.org/publicdomain/zero/1.0/
 
 homepage := Some(url("https://github.com/ScorexProject/iodb"))
 
-resolvers ++= Seq("Sonatype Releases" at "http://oss.sonatype.org/content/repositories/releases/",
+resolvers ++= Seq("Sonatype Releases" at "https://oss.sonatype.org/content/repositories/releases/",
+  "SonaType" at "https://oss.sonatype.org/content/groups/public",
   "Typesafe maven releases" at "http://repo.typesafe.com/typesafe/maven-releases/")
 
 publishMavenStyle := true
