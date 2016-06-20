@@ -8,24 +8,16 @@ import org.scalatest.Assertions
 /**
   * Tests store under continuous usage (disk leaks, data corruption etc..
   */
-class StoreBurnTest extends Assertions {
+class StoreBurnTest extends TestWithTempDir {
 
-  var dir: File = null
   var store:Store = null;
 
   /** run time for each test in seconds */
   val time = 60
 
-  @Before def init() {
-    dir = new File(System.getProperty("java.io.tmpdir") + "/iodb" + Math.random())
-    dir.mkdirs()
+  @Before override def init() {
+    super.init()
     store = new TrivialStore(dir=dir, keySize =32, keepLastN = 10)
-  }
-
-  @After def deleteFiles(): Unit = {
-    if (dir == null) return;
-    dir.listFiles().foreach(_.delete())
-    dir.delete()
   }
 
   def storeSize:Long = dir.listFiles().map(_.length()).sum
