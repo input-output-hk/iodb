@@ -33,12 +33,13 @@ class StoreTest extends Assertions {
   }
 
   @Test def put_get_delete_rollback() {
+    val prefix = "storeTrivial"
     val store = makeStore()
 
     store.update(1, List.empty, List((a(0), a(1))))
 
     assert(dir.listFiles().size === 1)
-    assert(new File(dir, "1").exists())
+    assert(new File(dir, prefix+"1").exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
     assert(store.get(a(1)) === null)
@@ -46,7 +47,7 @@ class StoreTest extends Assertions {
     store.update(2, List(a(0)), List.empty)
 
     assert(dir.listFiles().size === 2)
-    assert(new File(dir, "2").exists())
+    assert(new File(dir, prefix+"2").exists())
     assert(store.lastVersion === 2)
 
     assert(store.get(a(0)) === null)
@@ -54,7 +55,7 @@ class StoreTest extends Assertions {
     store.rollback(1)
 
     assert(dir.listFiles().size === 1)
-    assert(new File(dir, "1").exists())
+    assert(new File(dir, prefix+"1").exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
     assert(store.get(a(1)) === null)

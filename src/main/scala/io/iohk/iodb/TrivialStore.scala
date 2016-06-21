@@ -17,22 +17,42 @@ class TrivialStore(
 
   protected var _lastVersion: Long = 0L
 
+  private val filePrefix = "storeTrivial"
+
   protected var data = new util.HashMap[K, V]()
 
 
-  {
-    //find newest version
-    val files = dir.listFiles()
-    if (files.length > 0) {
-      val lastFile = files.sortBy(_.getName.toInt).last
-      _lastVersion = lastFile.getName.toInt
-      val in = new ObjectInputStream(new FileInputStream(this.lastFile()))
-      data = in.readObject().asInstanceOf[util.HashMap[K, V]]
-      in.close()
-    }
+  /**
+    * Set of active files sorted in descending order (newest first).
+    * Java collection is used, it supports mutable iterator.
+    */
+  private val files = new java.util.TreeSet[Long](java.util.Collections.reverseOrder[Long]())
+
+
+
+    {
+      val l = filePrefix.size
+      val pattern = (filePrefix + "[0-9]+").r
+      //find newest version
+      val files2 = dir.listFiles()
+        .map(_.getName())
+        .filter(pattern.pattern.matcher(_).matches())
+        .map(_.substring(l).toLong)
+
+      files2.foreach(files.add(_))
+
+      if (files.isEmpty) {
+        _lastVersion = 0
+      }else{
+        _lastVersion = files.first
+        //load data from first file
+        val in = new ObjectInputStream(new FileInputStream(this.lastFile()))
+        data = in.readObject().asInstanceOf[util.HashMap[K, V]]
+        in.close()
+      }
   }
 
-  protected def lastFile() = new File(dir, "" + lastVersion)
+  protected def lastFile() = new File(dir, filePrefix + lastVersion)
 
   override def get(key: K): V = {
     return data.get(key)
@@ -57,6 +77,8 @@ class TrivialStore(
     }
 
     _lastVersion = versionID
+    val notExist = files.add(_lastVersion)
+    assert(notExist)
 
     for (key <- toRemove) {
       val oldVal = data.remove(key)
@@ -72,6 +94,7 @@ class TrivialStore(
       }
     }
 
+
     //save map
     val fout = new FileOutputStream(lastFile());
     val oi = new ObjectOutputStream(fout);
@@ -81,28 +104,32 @@ class TrivialStore(
     oi.close()
   }
 
-  override def get(keys: Iterable[K], consumer: (K, V) => Unit): Unit = {
-    for (key <- keys) {
-      val value = get(key)
-      consumer(key, value)
-    }
-  }
 
-  override def rollback(versionID: Long): Unit = {
+  override def rollback(versionID: Long): Unit ={
     if (lastVersion() < versionID)
       throw new IllegalArgumentException("Can not rollback to newer version")
 
-    _lastVersion = versionID
+    val iter = files.iterator()
+      while(iter.hasNext){
+        val v = iter.next()
+        _lastVersion = v
+        if(v<=versionID) {
+          val in = new ObjectInputStream(new FileInputStream(lastFile()))
+          data = in.readObject().asInstanceOf[util.HashMap[K, V]]
+          in.close()
+
+          return //reached previous version, finish iteration
+        }
+        //move to prev version
+        new File(dir, filePrefix+v).delete()
+        iter.remove()
+      }
     val in = new ObjectInputStream(new FileInputStream(lastFile()))
     data = in.readObject().asInstanceOf[util.HashMap[K, V]]
     in.close()
 
-    //delete newer files
-    dir.listFiles().foreach { f =>
-      if (f.getName.matches("[0-9]+") && f.getName.toInt > versionID)
-        f.delete()
-    }
   }
+
 
   override def clean() {
     //keep last N versions

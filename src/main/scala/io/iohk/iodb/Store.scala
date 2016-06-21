@@ -13,9 +13,6 @@ trait Store {
   /** returns value associated with key */
   def get(key: K): V
 
-  /** gets values associated with keys, consumer is called for each result */
-  def get(keys: Iterable[K], consumer: (K, V) => Unit)
-
   /** gets values associated with keys, returns map with result */
   def get(keys: Iterable[K]): Iterable[(K, V)] = {
     val ret = scala.collection.mutable.ArrayBuffer.empty[(K, V)]
@@ -23,6 +20,14 @@ trait Store {
       ret += ((key, value))
     )
     return ret;
+  }
+
+  /** gets values associated with keys, consumer is called for each result */
+  def get(keys: Iterable[K], consumer: (K, V) => Unit): Unit = {
+    for (key <- keys) {
+      val value = get(key)
+      consumer(key, value)
+    }
   }
 
   /** start background cleanup/ compact operation. Only last N versions will be preserved */
