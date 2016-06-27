@@ -3,6 +3,8 @@ package io.iohk.iodb
 import java.io._
 import java.util
 
+import scala.collection.JavaConverters._
+
 /**
   * Naive store implementation, it does not have any index and always traverses file to find value.
   * used for testing.
@@ -29,27 +31,26 @@ class TrivialStore(
   private val files = new java.util.TreeSet[Long](java.util.Collections.reverseOrder[Long]())
 
 
+  {
+    val l = filePrefix.size
+    val pattern = (filePrefix + "[0-9]+").r
+    //find newest version
+    val files2 = dir.listFiles()
+      .map(_.getName())
+      .filter(pattern.pattern.matcher(_).matches())
+      .map(_.substring(l).toLong)
 
-    {
-      val l = filePrefix.size
-      val pattern = (filePrefix + "[0-9]+").r
-      //find newest version
-      val files2 = dir.listFiles()
-        .map(_.getName())
-        .filter(pattern.pattern.matcher(_).matches())
-        .map(_.substring(l).toLong)
+    files2.foreach(files.add(_))
 
-      files2.foreach(files.add(_))
-
-      if (files.isEmpty) {
-        _lastVersion = 0
-      }else{
-        _lastVersion = files.first
-        //load data from first file
-        val in = new ObjectInputStream(new FileInputStream(this.lastFile()))
-        data = in.readObject().asInstanceOf[util.HashMap[K, V]]
-        in.close()
-      }
+    if (files.isEmpty) {
+      _lastVersion = 0
+    } else {
+      _lastVersion = files.first
+      //load data from first file
+      val in = new ObjectInputStream(new FileInputStream(this.lastFile()))
+      data = in.readObject().asInstanceOf[util.HashMap[K, V]]
+      in.close()
+    }
   }
 
   protected def lastFile() = new File(dir, filePrefix + lastVersion)
@@ -66,14 +67,14 @@ class TrivialStore(
     }
 
     //check nulls before proceeding with any operations
-    for(a <- toRemove){
-      if(a==null)throw new NullPointerException()
+    for (a <- toRemove) {
+      if (a == null) throw new NullPointerException()
     }
-    for(a <- toUpdate){
-      if(a==null || a._1==null || a._2==null )
+    for (a <- toUpdate) {
+      if (a == null || a._1 == null || a._2 == null)
         throw new NullPointerException()
-      if(a._1.data.length!=keySize)
-        throw new IllegalArgumentException("key has wrong size, expected "+keySize+", got "+a._1.data.length)
+      if (a._1.data.length != keySize)
+        throw new IllegalArgumentException("key has wrong size, expected " + keySize + ", got " + a._1.data.length)
     }
 
     _lastVersion = versionID
@@ -105,25 +106,25 @@ class TrivialStore(
   }
 
 
-  override def rollback(versionID: Long): Unit ={
+  override def rollback(versionID: Long): Unit = {
     if (lastVersion() < versionID)
       throw new IllegalArgumentException("Can not rollback to newer version")
 
     val iter = files.iterator()
-      while(iter.hasNext){
-        val v = iter.next()
-        _lastVersion = v
-        if(v<=versionID) {
-          val in = new ObjectInputStream(new FileInputStream(lastFile()))
-          data = in.readObject().asInstanceOf[util.HashMap[K, V]]
-          in.close()
+    while (iter.hasNext) {
+      val v = iter.next()
+      _lastVersion = v
+      if (v <= versionID) {
+        val in = new ObjectInputStream(new FileInputStream(lastFile()))
+        data = in.readObject().asInstanceOf[util.HashMap[K, V]]
+        in.close()
 
-          return //reached previous version, finish iteration
-        }
-        //move to prev version
-        new File(dir, filePrefix+v).delete()
-        iter.remove()
+        return //reached previous version, finish iteration
       }
+      //move to prev version
+      new File(dir, filePrefix + v).delete()
+      iter.remove()
+    }
     val in = new ObjectInputStream(new FileInputStream(lastFile()))
     data = in.readObject().asInstanceOf[util.HashMap[K, V]]
     in.close()
@@ -133,11 +134,13 @@ class TrivialStore(
 
   override def clean() {
     //keep last N versions
-    dir.listFiles()
-        .filter(_.getName.matches("[0-9]+"))
-        .sortBy(_.getName.toInt)
-        .dropRight(keepLastN) //do not delete last N versions
-        .foreach(_.delete())
+    files.asScala.toList
+      .drop(keepLastN)
+      .foreach { num =>
+        val file = new File(dir.getPath + "/" + filePrefix + num)
+        file.delete()
+        files.remove(num)
+      }
   }
 
   override def cleanStop() {

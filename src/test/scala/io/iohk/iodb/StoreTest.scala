@@ -1,12 +1,10 @@
 package io.iohk.iodb
 
-import org.scalatest.Assertions
-import org.junit.Test
-import org.junit.After
 import java.io.File
-import java.util.Random
 
-class StoreTest extends Assertions {
+import org.junit.Test
+
+class StoreTest extends TestWithTempDir {
 
 
   // random Array[Byte]
@@ -14,32 +12,20 @@ class StoreTest extends Assertions {
     TestUtils.randomA()
   }
 
-  var dir: File = null
-
-  def makeStore(): Store = {
-    dir = new File(System.getProperty("java.io.tmpdir") + "/iodb" + Math.random())
-    return makeStore(dir)
-  }
 
   def makeStore(dir: File): Store = {
-    dir.mkdirs()
     return new TrivialStore(dir)
   }
 
-  @After def deleteFiles(): Unit = {
-    if (dir == null) return;
-    dir.listFiles().foreach(_.delete())
-    dir.delete()
-  }
 
   @Test def put_get_delete_rollback() {
     val prefix = "storeTrivial"
-    val store = makeStore()
+    val store = makeStore(dir)
 
     store.update(1, List.empty, List((a(0), a(1))))
 
     assert(dir.listFiles().size === 1)
-    assert(new File(dir, prefix+"1").exists())
+    assert(new File(dir, prefix + "1").exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
     assert(store.get(a(1)) === null)
@@ -47,7 +33,7 @@ class StoreTest extends Assertions {
     store.update(2, List(a(0)), List.empty)
 
     assert(dir.listFiles().size === 2)
-    assert(new File(dir, prefix+"2").exists())
+    assert(new File(dir, prefix + "2").exists())
     assert(store.lastVersion === 2)
 
     assert(store.get(a(0)) === null)
@@ -55,14 +41,14 @@ class StoreTest extends Assertions {
     store.rollback(1)
 
     assert(dir.listFiles().size === 1)
-    assert(new File(dir, prefix+"1").exists())
+    assert(new File(dir, prefix + "1").exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
     assert(store.get(a(1)) === null)
   }
 
   @Test def reopen() {
-    var store = makeStore()
+    var store = makeStore(dir)
     store.update(3, List.empty, List((a(0), a(1))))
     store.close()
 
@@ -77,7 +63,7 @@ class StoreTest extends Assertions {
   //    }
 
   @Test def null_update() {
-    var store = makeStore()
+    var store = makeStore(dir)
     store.update(1, List.empty, List((a(0), a(1))))
 
     assert(1 === store.lastVersion)
@@ -95,11 +81,11 @@ class StoreTest extends Assertions {
   }
 
   @Test def wrong_key_size() {
-    var store = makeStore()
+    var store = makeStore(dir)
     store.update(1, List.empty, List((a(0), a(1))))
 
     assert(1 === store.lastVersion)
-    val wrongKey = TestUtils.randomA(size=1)
+    val wrongKey = TestUtils.randomA(size = 1)
     intercept[IllegalArgumentException] {
       store.update(2, List(a(0)), List((wrongKey, a(1))))
     }

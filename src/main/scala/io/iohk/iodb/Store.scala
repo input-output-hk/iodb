@@ -1,7 +1,5 @@
 package io.iohk.iodb
 
-import java.util
-
 /**
   * Disk storage for Scorex
   */
