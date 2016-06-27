@@ -166,9 +166,9 @@ class TrivialStoreBurnTest extends StoreBurnTest {
     new TrivialStore(dir = dir, keySize = 32, keepLastN = 10)
   }
 }
-
-class LSMStoreBurnTest extends StoreBurnTest {
-  def makeStore(): Store = {
-    new LSMStore(dir = dir, keySize = 32, keepLastN = 10)
-  }
-}
+//
+//class LSMStoreBurnTest extends StoreBurnTest {
+//  def makeStore(): Store = {
+//    new LSMStore(dir = dir, keySize = 32, keepLastN = 10)
+//  }
+//}
