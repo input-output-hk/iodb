@@ -1,7 +1,8 @@
 package io.iohk.iodb
 
 import java.io.File
-import java.util.Random
+
+import scala.util.Random
 
 /**
   * test utilities
@@ -25,7 +26,7 @@ object TestUtils {
   private val random = new Random();
 
   /** generates random byte[] of given size */
-  def randomA(size: Int = 32): ByteArrayWrapper = {
+  def randomA(size: Int = 32, random:Random=this.random): ByteArrayWrapper = {
     val b = new Array[Byte](size)
     random.nextBytes(b)
     new ByteArrayWrapper(b)

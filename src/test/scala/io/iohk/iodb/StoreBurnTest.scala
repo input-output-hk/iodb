@@ -2,6 +2,8 @@ package io.iohk.iodb
 
 import org.junit._
 
+import scala.util.Random
+
 /**
   * Tests store under continuous usage (disk leaks, data corruption etc..
   */
@@ -19,6 +21,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
     var version = 1
     while (System.currentTimeMillis() < endTime) {
+      val random = new Random(1)
       keys.foreach { it =>
         assert(it === store.get(it))
       }
@@ -30,10 +33,10 @@ abstract class StoreBurnTest extends TestWithTempDir {
       version += 1
       if (version % 5 == 0)
         store.clean()
-
       keys = newKeys
+
       //check for disk leaks
-      assert(storeSize < 100 * 1024 * 1024)
+      assert(storeSize < 200 * 1024 * 1024)
     }
   }
 
@@ -70,7 +73,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       }
 
       //check for disk leaks
-      assert(storeSize < 100 * 1024 * 1024)
+      assert(storeSize < 200 * 1024 * 1024)
     }
   }
 
@@ -82,6 +85,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
     var version = 1
     while (System.currentTimeMillis() < endTime) {
+      val random = new Random(1)
       keys.foreach { it =>
         assert(it === store.get(it))
       }
@@ -96,7 +100,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
       keys = newKeys
       //check for disk leaks
-      assert(storeSize < 100 * 1024 * 1024)
+      assert(storeSize < 200 * 1024 * 1024)
 
       store.close()
       store = makeStore()
@@ -137,7 +141,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       }
 
       //check for disk leaks
-      assert(storeSize < 100 * 1024 * 1024)
+      assert(storeSize < 200 * 1024 * 1024)
 
       store.close()
       store = makeStore()
@@ -166,9 +170,9 @@ class TrivialStoreBurnTest extends StoreBurnTest {
     new TrivialStore(dir = dir, keySize = 32, keepLastN = 10)
   }
 }
-//
-//class LSMStoreBurnTest extends StoreBurnTest {
-//  def makeStore(): Store = {
-//    new LSMStore(dir = dir, keySize = 32, keepLastN = 10)
-//  }
-//}
+
+class LSMStoreBurnTest extends StoreBurnTest {
+  def makeStore(): Store = {
+    new LSMStore(dir = dir, keySize = 32, keepLastN = 10)
+  }
+}

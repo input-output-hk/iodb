@@ -5,7 +5,10 @@ import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.FileChannel.MapMode
 import java.nio.file.StandardOpenOption
+import java.util.{Collections, Comparator}
 import java.util.concurrent.locks.ReentrantReadWriteLock
+
+import com.google.common.collect.Iterators
 
 import scala.collection.JavaConverters._
 
@@ -68,61 +71,63 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
       if (files.containsKey(versionID))
         throw new IllegalArgumentException("Version already exists")
 
-      val all = new java.util.TreeMap[K, V].asScala
+      val f = file(versionID)
 
-      var fileSize: Long = baseOffset
-
-
-      for ((key, value) <- toUpdate ++ toRemove.map {
-        (_, tombstone)
-      }) {
-        if (key.data.length != keySize)
-          throw new IllegalArgumentException("Wrong key size")
-
-        val old = all.put(key, value)
-        if (!old.isEmpty)
-          throw new IllegalArgumentException("Duplicate key")
-
-        fileSize += keySize + 4 + 8 + value.data.length
-      }
-
-
-      val f = new File(dir, filePrefix + versionID)
-      assert(!f.exists())
-      val fout = new FileOutputStream(f);
-      val out = new DataOutputStream(new BufferedOutputStream(fout))
-
-      out.writeLong(0L) //header
-      out.writeLong(0L) //checksum
-      out.writeLong(fileSize) //file size
-      out.writeInt(all.size) //number of keys
-      out.writeInt(keySize)
-
-      var valueOffset = baseOffset + keySizeExtra * all.size
-      for ((key, value) <- all) {
-        out.write(key.data)
-        val valueSize = if (value eq tombstone) -1 else value.data.length
-        out.writeInt(valueSize)
-        out.writeLong(valueOffset)
-        valueOffset += value.data.length
-      }
-      assert(valueOffset == fileSize)
-
-      for (value <- all.values) {
-        out.write(value.data)
-      }
-
-      out.flush()
-      fout.flush()
-      fout.getFD.sync()
-      out.close()
-      fout.close()
+      updateFile(f, toRemove, toUpdate)
       val oldVal = files.put(versionID, mmap(versionID))
       assert(oldVal == null)
       this.version = versionID
     } finally {
       lock.writeLock().unlock()
     }
+  }
+
+  protected def updateFile(f: File, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
+    val all = new java.util.TreeMap[K, V].asScala
+
+    var fileSize: Long = baseOffset
+    for ((key, value) <- toUpdate ++ toRemove.map {
+      (_, tombstone)
+    }) {
+      if (key.data.length != keySize)
+        throw new IllegalArgumentException("Wrong key size")
+
+      val old = all.put(key, value)
+      if (!old.isEmpty)
+        throw new IllegalArgumentException("Duplicate key")
+
+      fileSize += keySize + 4 + 8 + value.data.length
+    }
+
+    assert(!f.exists())
+    val fout = new FileOutputStream(f);
+    val out = new DataOutputStream(new BufferedOutputStream(fout))
+
+    out.writeLong(0L) //header
+    out.writeLong(0L) //checksum
+    out.writeLong(fileSize) //file size
+    out.writeInt(all.size) //number of keys
+    out.writeInt(keySize)
+
+    var valueOffset = baseOffset + keySizeExtra * all.size
+    for ((key, value) <- all) {
+      out.write(key.data)
+      val valueSize = if (value eq tombstone) -1 else value.data.length
+      out.writeInt(valueSize)
+      out.writeLong(valueOffset)
+      valueOffset += value.data.length
+    }
+    assert(valueOffset == fileSize)
+
+    for (value <- all.values) {
+      out.write(value.data)
+    }
+
+    out.flush()
+    fout.flush()
+    fout.getFD.sync()
+    out.close()
+    fout.close()
   }
 
   override def get(key: K): V = {
@@ -175,7 +180,7 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
     lock.readLock.lock()
     try {
       for (versionId <- files.keySet.iterator().asScala) {
-        val f = new File(dir, filePrefix + versionId)
+        val f = file(versionId)
         val raf = new RandomAccessFile(f, "r")
         raf.seek(keyCountOffset)
         val keyCount: Long = raf.readInt()
@@ -229,7 +234,7 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
         if (version <= versionID)
           return //reached previous version, finish iteration
         //move to prev version
-        new File(dir, filePrefix + v).delete()
+        fileDelete(version)
         iter.remove()
       }
     } finally {
@@ -238,15 +243,79 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
   }
 
 
-  override def close(): Unit = {
+  override def close(){
 
   }
 
   override def clean() {
+    lock.writeLock().lock()
+    try{
 
+      //collect data from old files
+      if(files.size()<=keepLastN+1)
+        return
+
+      val oldFiles= files.asScala.keys.drop(keepLastN)
+
+      // iterator of iterators over all files
+      val iters:java.lang.Iterable[java.util.Iterator[(K, Long, V)]] =
+        oldFiles.map { version =>
+          val iter = fileIter(version)
+          iter.map{e=>
+            (e._1, version, e._2)
+          }.asJava
+        }.asJavaCollection
+
+
+      // compares result of iterators,
+      // Second tuple val is Version, is descending so we get only newest version
+      object comparator extends Comparator[(K, Long, V)]{
+        override def compare(o1: (K, Long, V), o2: (K, Long, V)): Int = {
+          var c = o1._1.compareTo(o2._1)
+          if(c!=0) return c
+          return -o1._2.compareTo(o2._2)
+        }
+      }
+
+      val result = new scala.collection.mutable.ArrayBuffer[(K,V)]()
+
+      //merge multiple iterators, result iterator is sorted union of all iters
+      val iter = Iterators.mergeSorted[(K, Long, V)](iters, comparator)
+      //iterator over sorted data, most recent version of key is first, followed by older versions
+      var prevKey:K = null;
+      while(iter.hasNext){
+        val e = iter.next()
+        val key = e._1
+        if(key!=prevKey){ //skip older versions of keys
+          val value = e._3
+          if(value!=null){ //null value means that key was deleted
+            //got newest version if the new key
+            result+=((key,value))
+          }
+          prevKey = key
+        }
+      }
+
+      //FIXME this section has no crash recovery, old file might get deleted before compacted file is finished
+
+      //delete old files
+      oldFiles.foreach{ v:Long=>
+        files.remove(v)
+        fileDelete(v)
+      }
+      //save into new file
+      val lastVersion = oldFiles.head
+      val f = file(lastVersion)
+      updateFile(f, toRemove = List.empty,  toUpdate = result)
+
+      files.put(lastVersion, mmap(lastVersion))
+
+    }finally{
+      lock.writeLock.unlock()
+    }
   }
 
-  private def fileIter(version: Long): Iterator[(ByteArrayWrapper, ByteArrayWrapper)] = {
+  protected def fileIter(version: Long): Iterator[(ByteArrayWrapper, ByteArrayWrapper)] = {
     val buf = files.get(version).duplicate()
     val count = buf.getInt(24)
     val iter = (0 until count).map { i =>
@@ -276,12 +345,20 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
 
   }
 
-  def mmap(version: Long): ByteBuffer = {
-    val f = new File(dir, filePrefix + version)
+  protected def file(version:Long) = new File(dir, filePrefix+version)
+
+  protected def mmap(version: Long): ByteBuffer = {
+    val f = file(version)
     val c = FileChannel.open(f.toPath, StandardOpenOption.READ)
     val ret = c.map(MapMode.READ_ONLY, 0, f.length())
     c.close()
     return ret
   }
 
+  protected def fileDelete(version:Long){
+    val f = file(version)
+    assert(f.exists())
+    val deleted = f.delete()
+    assert(deleted)
+  }
 }
