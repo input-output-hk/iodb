@@ -21,7 +21,6 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
     var version = 1
     while (System.currentTimeMillis() < endTime) {
-      val random = new Random(1)
       keys.foreach { it =>
         assert(it === store.get(it))
       }
@@ -85,7 +84,6 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
     var version = 1
     while (System.currentTimeMillis() < endTime) {
-      val random = new Random(1)
       keys.foreach { it =>
         assert(it === store.get(it))
       }

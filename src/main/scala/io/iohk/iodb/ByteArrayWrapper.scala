@@ -10,6 +10,11 @@ case class ByteArrayWrapper(val data: Array[Byte])
   extends Serializable
     with Comparable[ByteArrayWrapper] {
 
+  {
+    if(data==null)
+      throw new NullPointerException()
+  }
+
   //TODO wrapped data immutable?
 
   override def equals(o: Any): Boolean = {

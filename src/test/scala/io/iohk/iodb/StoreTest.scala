@@ -4,44 +4,44 @@ import java.io.File
 
 import org.junit.Test
 
-class StoreTest extends TestWithTempDir {
+abstract class StoreTest extends TestWithTempDir {
 
+  def numberOfFilesPerUpdate:Int
+  def makeStore(dir: File): Store
+
+  def filePrefix:String
+  def fileSuffix:String
+
+  def file(version:Int) = new File(dir, filePrefix + version + fileSuffix);
 
   // random Array[Byte]
   val a = (0 until 4).map { i =>
     TestUtils.randomA()
   }
 
-
-  def makeStore(dir: File): Store = {
-    return new TrivialStore(dir)
-  }
-
-
   @Test def put_get_delete_rollback() {
-    val prefix = "storeTrivial"
     val store = makeStore(dir)
 
     store.update(1, List.empty, List((a(0), a(1))))
 
-    assert(dir.listFiles().size === 1)
-    assert(new File(dir, prefix + "1").exists())
+    assert(dir.listFiles().size === 1 * numberOfFilesPerUpdate)
+    assert(file(1).exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
     assert(store.get(a(1)) === null)
 
     store.update(2, List(a(0)), List.empty)
 
-    assert(dir.listFiles().size === 2)
-    assert(new File(dir, prefix + "2").exists())
+    assert(dir.listFiles().size === 2 * numberOfFilesPerUpdate)
+    assert(file(2).exists())
     assert(store.lastVersion === 2)
 
     assert(store.get(a(0)) === null)
 
     store.rollback(1)
 
-    assert(dir.listFiles().size === 1)
-    assert(new File(dir, prefix + "1").exists())
+    assert(dir.listFiles().size === 1 * numberOfFilesPerUpdate)
+    assert(file(1).exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
     assert(store.get(a(1)) === null)
@@ -92,4 +92,26 @@ class StoreTest extends TestWithTempDir {
     assert(1 === store.lastVersion)
     assert(a(1) === store.get(a(0)))
   }
+}
+
+class StoreTrivialTest extends StoreTest{
+
+  override def numberOfFilesPerUpdate: Int = 1
+
+  override def makeStore(dir: File): Store = new TrivialStore(dir)
+
+  override def filePrefix: String = "storeTrivial"
+  override def fileSuffix: String = ""
+
+}
+
+
+class StoreLSMTest extends StoreTest{
+
+  override def numberOfFilesPerUpdate: Int = 2
+
+  override def makeStore(dir: File): Store = new LSMStore(dir)
+
+  override def filePrefix: String = "store"
+  override def fileSuffix: String = ".keys"
 }
