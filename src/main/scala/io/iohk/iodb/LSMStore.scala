@@ -126,9 +126,10 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
     val keysFS = new FileOutputStream(keysFile);
     val keysB = new DataOutputStream(new BufferedOutputStream(keysFS))
 
+    val keysFileSize = baseKeyOffset + keySizeExtra * all.size
     keysB.writeLong(0L) //header
     keysB.writeLong(0L) //checksum
-    keysB.writeLong(baseKeyOffset + keySizeExtra * all.size) //file size
+    keysB.writeLong(keysFileSize) //file size
     keysB.writeInt(all.size) //number of keys
     keysB.writeInt(keySize)
 
@@ -158,16 +159,85 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
     keysB.flush()
     keysFS.flush()
     keysFS.getFD.sync()
+    assert(keysFileSize == keysFS.getChannel.position())
     keysB.close()
     keysB.close()
 
     valuesB.flush()
     valuesFS.flush()
     valuesFS.getFD.sync()
+    assert(valueOffset == valuesFS.getChannel.position())
     valuesB.close()
     valuesB.close()
   }
 
+
+  protected def updateSorted(versionId: Long, toUpdate: Iterable[(K, V)]): Unit = {
+
+
+    // keys OutputStream
+    val keysFile = keyFile(versionId)
+    val keysFS = new FileOutputStream(keysFile);
+    val keysB = new DataOutputStream(new BufferedOutputStream(keysFS))
+
+    keysB.writeLong(0L) //header
+    keysB.writeLong(0L) //checksum
+    keysB.writeLong(-1L) //file size, will be written latter
+    keysB.writeInt(-1) //number of keys, will be written latter
+    keysB.writeInt(keySize)
+
+    // values OutputStream
+    val valuesFile = valueFile(versionId)
+    val valuesFS = new FileOutputStream(valuesFile);
+    val valuesB = new DataOutputStream(new BufferedOutputStream(valuesFS))
+
+    valuesB.writeLong(0L) //header
+    valuesB.writeLong(0L) //checksum
+    valuesB.writeLong(-1) //file size, will be written latter
+
+
+    var keysCount = 0;
+    var valueOffset = baseValueOffset
+    for ((key, value) <- toUpdate) {
+      keysB.write(key.data)
+      keysB.writeInt(if (value eq tombstone) -1 else value.data.length)
+      keysB.writeLong(if (value eq tombstone) -1 else valueOffset)
+      keysCount+=1
+
+      if(!(value eq tombstone)){
+        valueOffset += value.data.length
+        valuesB.write(value.data)
+      }
+    }
+
+    val keysFileSize = baseKeyOffset + keySizeExtra * keysCount
+    keysB.flush()
+    assert(keysFileSize == keysFS.getChannel.position())
+    //seek back to write file size
+    keysFS.getChannel.position(fileSizeOffset)
+    val keysB2 = new DataOutputStream(keysFS)
+    keysB2.writeLong(keysFileSize) //file size
+    keysB2.writeInt(keysCount) //number of keys
+    keysB2.flush()
+
+    keysFS.flush()
+    keysFS.getFD.sync()
+    keysB.close()
+    keysB.close()
+
+    valuesB.flush()
+    //seek back to write file size
+    assert(valueOffset == valuesFS.getChannel.position())
+    valuesFS.getChannel.position(fileSizeOffset)
+    val valuesB2 = new DataOutputStream(valuesFS)
+    valuesB2.writeLong(valueOffset) //file size
+    valuesB2.flush()
+
+    valuesFS.flush()
+    valuesFS.getFD.sync()
+    valuesB.close()
+    valuesB.close()
+  }
 
   override def get(key: K): V = {
     lock.readLock.lock()
@@ -249,8 +319,7 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
       val oldFiles= files.asScala.keys.drop(keepLastN)
 
       // iterator of iterators over all files
-      val iters:java.lang.Iterable[java.util.Iterator[(K, Long, V)]] =
-        oldFiles.map { version =>
+      val iters:java.lang.Iterable[java.util.Iterator[(K, Long, V)]] = oldFiles.map { version =>
           val iter = fileIter(version)
           iter.map{e=>
             (e._1, version, e._2)
@@ -296,7 +365,7 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
       }
       //save into new file
       val lastVersion = oldFiles.head
-      updateFile(lastVersion, toRemove = List.empty,  toUpdate = result)
+      updateSorted(lastVersion, result)
 
       files.put(lastVersion, mmap(lastVersion))
 
@@ -364,20 +433,4 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10) extends Store 
     assert(deleted)
   }
 
-  protected def writeLong(c: FileChannel, value:Long, offset:Long = -1L){
-    if(offset != -1L)
-      c.position(offset)
-    val b = ByteBuffer.allocate(8)
-    b.putLong(0, value)
-    Utils.writeFully(c,b)
-  }
-
-
-  protected def writeInt(c: FileChannel, value:Int, offset:Long = -1L){
-    if(offset != -1L)
-      c.position(offset)
-    val b = ByteBuffer.allocate(4)
-    b.putInt(0, value)
-    Utils.writeFully(c,b)
-  }
 }

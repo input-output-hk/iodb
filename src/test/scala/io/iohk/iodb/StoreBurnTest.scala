@@ -11,7 +11,6 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
   def makeStore(): Store
 
-  def storeSize: Long = dir.listFiles().map(_.length()).sum
 
   /** tests for disk leaks under continous usage */
   @Test def continous_insert() {

@@ -32,22 +32,31 @@ object TestUtils {
     new ByteArrayWrapper(b)
   }
 
+  /** return value of  `-DlongTest=1` property, 0 if value is not defined, or 1 if its defined but not a number */
+  def longTest():Long = {
+    var ret = 0L
+    try {
+      val prop = System.getProperty("longTest")
+      if(prop!=null) {
+        ret = 1;
+        if (prop.matches("[0-9]+")) {
+          ret = prop.toLong
+        }
+      }
+    } catch {
+      case _: Exception =>
+    }
+
+    return ret;
+
+  }
+
   /** Duration of long running tests.
     * Its value is controlled by `-DlongTest=1` property, where the value is test runtime in minutes.
     * By default tests run 5 seconds, but it can be increased by setting this property.
     */
   def endTimestamp(): Long = {
-    var end: Long = 5 * 1000;
-    try {
-      val prop = System.getProperty("longTest")
-      if (prop != null)
-        end = 60 * 1000
-      if (prop.matches("[0-9]+")) {
-        end = 60 * 1000 * prop.toLong
-      }
-    } catch {
-      case _: Exception =>
-    }
+    var end: Long = 5 * 1000 + longTest() * 60*1000;
 
     return end + System.currentTimeMillis()
   }

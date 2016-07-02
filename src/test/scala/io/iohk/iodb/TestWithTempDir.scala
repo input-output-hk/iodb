@@ -8,9 +8,11 @@ import org.scalatest.Assertions
 /**
   * Created by jan on 6/20/16.
   */
-class TestWithTempDir extends Assertions {
+trait TestWithTempDir extends Assertions {
 
   var dir: File = null
+
+  def storeSize: Long = dir.listFiles().map(_.length()).sum
 
   @Before def init() {
     dir = TestUtils.tempDir()
