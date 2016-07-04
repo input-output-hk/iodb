@@ -14,6 +14,8 @@ libraryDependencies ++= Seq(
   "org.scalactic" %% "scalactic" % "2.+" % "test",
   "org.scalacheck" %% "scalacheck" % "1.12.+" % "test",
   "com.novocode" % "junit-interface" % "0.11" % "test",
+  "org.rocksdb" % "rocksdbjni" % "4.5.1" % "test",
+
   "org.slf4j" % "slf4j-api" % "1.+"
 )
 

@@ -12,7 +12,7 @@ trait TestWithTempDir extends Assertions {
 
   var dir: File = null
 
-  def storeSize: Long = dir.listFiles().map(_.length()).sum
+  def storeSize: Long = TestUtils.dirSize(dir)
 
   @Before def init() {
     dir = TestUtils.tempDir()

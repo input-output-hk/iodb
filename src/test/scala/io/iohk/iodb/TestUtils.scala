@@ -9,6 +9,9 @@ import scala.util.Random
   */
 object TestUtils {
 
+  def dirSize(dir: File): Long = dir.listFiles().map(_.length()).sum
+
+
   def tempDir(): File = {
     val dir = new File(System.getProperty("java.io.tmpdir") + "/iodb" + Math.random())
     dir.mkdirs()

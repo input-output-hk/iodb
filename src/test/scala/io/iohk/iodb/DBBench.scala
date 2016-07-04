@@ -1,5 +1,6 @@
 package io.iohk.iodb
 
+import java.io.File
 import java.util.Random
 
 /**
@@ -7,16 +8,20 @@ import java.util.Random
   */
 object DBBench {
 
-  val updates = 100
+  val updates = 1000
   val keyCount = 100
   val keySize = 32
   val valueSize = 128
 
   def main(args: Array[String]) {
+    var dir = TestUtils.tempDir()
+    bench(new LSMStore(dir, keySize = keySize), dir)
 
-    val dir = TestUtils.tempDir()
-    val store = new LSMStore(dir, keySize = keySize)
+    dir = TestUtils.tempDir()
+    bench(new RocksStore(dir), dir)
+  }
 
+  def bench(store: Store, dir:File): Unit = {
     val r = new Random(1)
     var version = 0
     //insert random values
@@ -53,11 +58,12 @@ object DBBench {
       }
     }
 
+    println("Store: "+store.getClass)
     println("Insert time:  " + insertTime)
     println("Get time:     " + getTime)
+    println("Store size: "+TestUtils.dirSize(dir)/(1024*1024)+" MB")
 
     store.close()
     TestUtils.deleteRecur(dir)
   }
-
 }

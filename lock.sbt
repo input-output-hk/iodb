@@ -6,6 +6,7 @@ dependencyOverrides in ThisBuild ++= Set(
   "com.novocode" % "junit-interface" % "0.11",
   "junit" % "junit" % "4.11",
   "org.hamcrest" % "hamcrest-core" % "1.3",
+  "org.rocksdb" % "rocksdbjni" % "4.5.1",
   "org.scala-lang.modules" % "scala-xml_2.11" % "1.0.2",
   "org.scala-sbt" % "test-interface" % "1.0",
   "org.scalacheck" % "scalacheck_2.11" % "1.12.5",
@@ -13,4 +14,4 @@ dependencyOverrides in ThisBuild ++= Set(
   "org.scalatest" % "scalatest_2.11" % "2.3.0-SNAP2",
   "org.slf4j" % "slf4j-api" % "1.7.21"
 )
-// LIBRARY_DEPENDENCIES_HASH 9bb68cc72a73803157079862cebdd70e934ebc00
+// LIBRARY_DEPENDENCIES_HASH f16ca979d2edfce0a7cecda5b19361860bc1908d
