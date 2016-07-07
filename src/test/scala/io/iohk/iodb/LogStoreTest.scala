@@ -4,10 +4,10 @@ import org.junit.Test
 
 import scala.collection.mutable
 
-class LSMStoreTest extends TestWithTempDir {
+class LogStoreTest extends TestWithTempDir {
 
   @Test def binary_search(): Unit = {
-    val store = new LSMStore(dir = dir)
+    val store = new LogStore(dir = dir, filePrefix = "store")
 
     val s = new mutable.TreeSet[ByteArrayWrapper]()
     for (i <- 0 until 1000) {

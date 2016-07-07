@@ -168,8 +168,8 @@ class TrivialStoreBurnTest extends StoreBurnTest {
   }
 }
 
-class LSMStoreBurnTest extends StoreBurnTest {
+class LogStoreBurnTest extends StoreBurnTest {
   def makeStore(): Store = {
-    new LSMStore(dir = dir, keySize = 32, keepLastN = 10)
+    new LogStore(dir = dir, filePrefix="store", keySize = 32) //TODO , keepLastN = 10
   }
 }

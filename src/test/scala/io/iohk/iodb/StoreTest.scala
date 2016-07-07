@@ -106,11 +106,11 @@ class StoreTrivialTest extends StoreTest{
 }
 
 
-class StoreLSMTest extends StoreTest{
+class StoreLogTest extends StoreTest{
 
   override def numberOfFilesPerUpdate: Int = 2
 
-  override def makeStore(dir: File): Store = new LSMStore(dir)
+  override def makeStore(dir: File): Store = new LogStore(dir, filePrefix)
 
   override def filePrefix: String = "store"
   override def fileSuffix: String = ".keys"
