@@ -40,30 +40,54 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
    - 8 bytes file size
    */
 
+  case class LogFile(val version:Long, val isMerged:Boolean){
+
+    def keyFile = LogStore.this.keyFile(version, isMerged)
+    def valueFile = LogStore.this.valueFile(version, isMerged)
+    val keyBuf = mmap(keyFile)
+    val valueBuf = mmap(valueFile)
+  }
+
   /**
     * Set of active files sorted in descending order (newest first).
     * First value is key file, second value is value file.
     * Java collection is used, it supports mutable iterator.
     */
-  protected val files = new java.util.TreeMap[Long, (ByteBuffer, ByteBuffer)](java.util.Collections.reverseOrder[Long]())
+  protected val files = new java.util.TreeMap[Long, LogFile](java.util.Collections.reverseOrder[Long]())
 
 
   protected val fileKeyExt = ".keys"
   protected val fileValueExt = ".values"
+  protected val mergedExt = ".merged"
 
   {
-    //load existing files
-    dir.listFiles()
+
+    def load(isMerged:Boolean) {
+      val ext = fileKeyExt +(if(isMerged)mergedExt else "")
+      //load existing files
+      dir.listFiles()
         .map(_.getName)
-        .filter(_.matches(filePrefix+"[0-9]+"+fileKeyExt)) //get key files
+        .filter(_.matches(filePrefix + "[0-9]+" + ext)) //get key files
         .map(_.substring(filePrefix.size)) //remove prefix
-        .map(s=>s.substring(0,s.size-fileKeyExt.size)) //remove suffix
+        .map(s => s.substring(0, s.size - ext.size)) //remove suffix
         .map(_.toLong)
         .foreach { version =>
-          val keyBuf = mmap(keyFile(version))
-          val valueBuf = mmap(valueFile(version))
-          files.put(version, (keyBuf,valueBuf))
+          val old = files.put(version, new LogFile(version, isMerged = isMerged))
+          assert(old==null)
         }
+    }
+
+    load(false)
+    load(true)
+
+    for((key, value) <- files.asScala){
+      assert(key==value.version)
+    }
+
+    for((key, value) <- files.asScala.dropRight(1)){
+      assert(!value.isMerged)
+    }
+
   }
 
 
@@ -81,8 +105,13 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
   private val tombstone = new ByteArrayWrapper(new Array[Byte](0))
 
 
-  protected def keyFile(version:Long) = new File(dir, filePrefix+version+fileKeyExt)
-  protected def valueFile(version:Long) = new File(dir, filePrefix+version+fileValueExt)
+  protected[iohk] def keyFile(version:Long, isMerged:Boolean=false) =
+      new File(dir, filePrefix+version+fileKeyExt +
+        (if(isMerged) mergedExt else "" ))
+
+  protected[iohk] def valueFile(version:Long, isMerged:Boolean=false) =
+      new File(dir, filePrefix+version+fileValueExt +
+        (if(isMerged) mergedExt else "" ))
 
   protected def mmap(file: File): ByteBuffer = {
     val c = FileChannel.open(file.toPath, StandardOpenOption.READ)
@@ -91,14 +120,12 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
     return ret
   }
 
-
-
   /** iterates over all values in single version. Null value is tombstone. */
   protected def versionIterator(version: Long): Iterator[(K, V)] = {
-    var (keyBuf, valueBuf) = files.get(version)
-    keyBuf = keyBuf.duplicate()
+    val logFile = files.get(version)
+    val keyBuf = logFile.keyBuf.duplicate()
     keyBuf.position(baseKeyOffset.toInt)
-    valueBuf = valueBuf.duplicate()
+    val valueBuf = logFile.valueBuf.duplicate()
 
     val count = keyBuf.getInt(keyCountOffset)
     return (0 until count).map { i =>
@@ -154,7 +181,7 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
           val include =
             (prevKey == null || //first key
             !prevKey.equals(it._1)) && //is first version of this key
-            it._3!=null  // only include if is not tomstone
+            it._3!=null  // only include if is not tombstone
           prevKey = it._1
           include
         }.map(it=>(it._1, it._3))
@@ -179,9 +206,10 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
 
 
   protected def versionGet(versionId:Long, key:K): V ={
-    var (keyBuf,valueBuf) = files.get(versionId)
-    keyBuf = keyBuf.duplicate()
-    valueBuf = valueBuf.duplicate()
+    val logFile = files.get(versionId)
+    val keyBuf = logFile.keyBuf.duplicate()
+    val valueBuf = logFile.valueBuf.duplicate()
+
     val keyCount: Long = keyBuf.getInt(keyCountOffset)
 
     var lo: Long = 0
@@ -287,15 +315,14 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
     valuesB.close()
     valuesB.close()
 
-    files.put(version, (mmap(keysFile), mmap(valuesFile)))
+    files.put(version, new LogFile(version, isMerged = false))
   }
 
 
-  protected def updateSorted(versionId: Long, toUpdate: Iterable[(K, V)]): Unit = {
-
+  protected def updateSorted(versionId: Long, isMerged:Boolean, toUpdate: Iterator[(K, V)]): Unit = {
 
     // keys OutputStream
-    val keysFile = keyFile(versionId)
+    val keysFile = keyFile(versionId, isMerged)
     val keysFS = new FileOutputStream(keysFile);
     val keysB = new DataOutputStream(new BufferedOutputStream(keysFS))
 
@@ -305,8 +332,9 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
     keysB.writeInt(-1) //number of keys, will be written latter
     keysB.writeInt(keySize)
 
-    // values OutputStream
-    val valuesFile = valueFile(versionId)
+
+   // values OutputStream
+    val valuesFile = valueFile(versionId, isMerged)
     val valuesFS = new FileOutputStream(valuesFile);
     val valuesB = new DataOutputStream(new BufferedOutputStream(valuesFS))
 
@@ -372,11 +400,33 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
 
   protected def fileDelete(f:File): Unit ={
     assert(f.exists())
-    var deleted = f.delete()
+    val deleted = f.delete()
     assert(deleted)
   }
 
   override def clean(): Unit = {
+  }
+
+  def clean(versionId:Long): Unit ={
+    if(files.isEmpty || versionId<=files.lastKey())
+      return //already lowest entry
+
+
+    //iterate over data at one version, and save the merged result
+    val merged = keyValues(versionId)
+    updateSorted(versionId, isMerged=true, toUpdate = merged)
+
+    val keyBuf = mmap(keyFile(versionId, isMerged = true))
+    val valuebuf = mmap(valueFile(versionId, isMerged = true))
+
+    //remove old files
+    val logFiles = files.tailMap(versionId, true).values().asScala.toBuffer
+    for(logFile <- logFiles){
+      files.remove(logFile.version)
+      fileDelete(logFile.keyFile)
+      fileDelete(logFile.valueFile)
+    }
+    files.put(versionId, new LogFile(versionId, isMerged = true))
   }
 
   override def close(): Unit = {
@@ -384,5 +434,9 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
 
   override def cleanStop(): Unit = {
   }
+
+
+  /** returns copy of opened files*/
+  protected[iodb] def getFiles() = new java.util.TreeMap(files)
 
 }

@@ -1,6 +1,7 @@
 package io.iohk.iodb
 
 import java.io.File
+import java.nio.ByteBuffer
 
 import scala.util.Random
 
@@ -69,5 +70,11 @@ object TestUtils {
     val s = System.currentTimeMillis()
     e.apply()
     return System.currentTimeMillis() - s
+  }
+
+  def fromLong(id:Long):ByteArrayWrapper ={
+    val b = ByteBuffer.allocate(8)
+    b.putLong(0, id)
+    return new ByteArrayWrapper(b.array())
   }
 }

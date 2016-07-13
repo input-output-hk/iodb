@@ -124,7 +124,7 @@ Dimensions
 - IndexId
 
 Get operation
-====================
+----------------d
 
 - Traverse log in reverse order, until key is found
 - Finish traversal at nearest Index Write Buffer or nearest Index File
