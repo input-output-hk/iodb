@@ -30,7 +30,7 @@ class HugeTest extends Assertions with TestWithTempDir{
       version+=1
     }
 
-    store.clean()
+    store.clean(version-10)
     assert(storeSize<spaceReq/10)
     store.close()
   }

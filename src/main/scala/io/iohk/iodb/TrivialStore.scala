@@ -12,8 +12,7 @@ import scala.collection.JavaConverters._
   */
 class TrivialStore(
                     val dir: File,
-                    val keySize: Int = 32,
-                    val keepLastN: Int = 10
+                    val keySize: Int = 32
                   ) extends Store {
 
 
@@ -131,11 +130,10 @@ class TrivialStore(
 
   }
 
-
-  override def clean() {
+  override def clean(version:Long) {
     //keep last N versions
     files.asScala.toList
-      .drop(keepLastN)
+      .dropWhile(_!=version)
       .foreach { num =>
         val file = new File(dir.getPath + "/" + filePrefix + num)
         file.delete()

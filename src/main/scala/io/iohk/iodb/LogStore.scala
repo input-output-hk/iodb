@@ -16,7 +16,7 @@ import scala.collection.JavaConverters._
 /**
   * Single log file
   */
-class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends Store {
+class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32) extends Store {
 
 
   /*
@@ -150,7 +150,7 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
 
   def versions:Iterable[Long] = files.keySet().asScala
 
-  def keyValues(versionId:Long):Iterator[(K, V)] = {
+  def keyValues(fromVersion:Long, toVersion:Long = Long.MinValue):Iterator[(K, V)] = {
 
     // compares result of iterators,
     // Second tuple val is Version, is descending so we get only newest version
@@ -163,7 +163,7 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
       }
     }
 
-    val versions = files.tailMap(versionId, true).keySet().asScala
+    val versions = files.subMap(fromVersion, true, toVersion, false).keySet().asScala
     // iterator of iterators over all files
     val iters:java.lang.Iterable[java.util.Iterator
         [(K, Long, V)]] = versions.map { version =>
@@ -386,7 +386,7 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
     valuesB.close()
   }
 
-  override def lastVersion: Long = files.firstKey()
+  override def lastVersion: Long = if(files.isEmpty) -1 else files.firstKey()
 
   /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
   override def rollback(versionID: Long): Unit = {
@@ -404,10 +404,7 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32 ) extends
     assert(deleted)
   }
 
-  override def clean(): Unit = {
-  }
-
-  def clean(versionId:Long): Unit ={
+  override def clean(versionId:Long): Unit ={
     if(files.isEmpty || versionId<=files.lastKey())
       return //already lowest entry
 

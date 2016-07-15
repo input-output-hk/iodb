@@ -112,6 +112,17 @@ class StoreLogTest extends StoreTest{
 
   override def makeStore(dir: File): Store = new LogStore(dir, filePrefix)
 
-  override def filePrefix: String = "store"
+  override def filePrefix: String = "store-"
+  override def fileSuffix: String = ".keys"
+}
+
+class LSMLogTest extends StoreTest {
+
+  override def numberOfFilesPerUpdate: Int = 2
+
+  override def makeStore(dir: File): Store = new LSMStore(dir)
+
+  override def filePrefix: String = "log-"
+
   override def fileSuffix: String = ".keys"
 }

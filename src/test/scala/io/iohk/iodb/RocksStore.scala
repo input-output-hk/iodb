@@ -52,8 +52,7 @@ class RocksStore(val dir:File) extends Store{
   /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
   override def rollback(versionID: Long): Unit = ???
 
-  /** start background cleanup/ compact operation. Only last N versions will be preserved */
-  override def clean(): Unit = {
+  override def clean(version:Long): Unit = {
 
   }
 

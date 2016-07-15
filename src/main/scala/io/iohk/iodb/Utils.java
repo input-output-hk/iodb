@@ -30,4 +30,13 @@ class Utils {
         }
         return h;
     }
+
+    /**  returns byte array, which is greater than any other array of given size */
+    public static byte[] greatest(int size){
+        byte[] ret = new byte[size];
+        for(int i=0;i<size;i++){
+            ret[i] = (byte) 0xFF;
+        }
+        return ret;
+    }
 }

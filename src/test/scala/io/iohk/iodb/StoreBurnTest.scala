@@ -30,7 +30,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       assert(store.lastVersion === version)
       version += 1
       if (version % 5 == 0)
-        store.clean()
+        store.clean(version-10)
       keys = newKeys
 
       //check for disk leaks
@@ -93,7 +93,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       assert(store.lastVersion === version)
       version += 1
       if (version % 5 == 0)
-        store.clean()
+        store.clean(version-10)
 
       keys = newKeys
       //check for disk leaks
@@ -164,12 +164,19 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
 class TrivialStoreBurnTest extends StoreBurnTest {
   def makeStore(): Store = {
-    new TrivialStore(dir = dir, keySize = 32, keepLastN = 10)
+    new TrivialStore(dir = dir, keySize = 32)
   }
 }
 
 class LogStoreBurnTest extends StoreBurnTest {
   def makeStore(): Store = {
-    new LogStore(dir = dir, filePrefix="store", keySize = 32) //TODO , keepLastN = 10
+    new LogStore(dir = dir, filePrefix="store", keySize = 32)
+  }
+}
+
+
+class LSMStoreBurnTest extends StoreBurnTest {
+  def makeStore(): Store = {
+    new LSMStore(dir = dir, keySize = 32)
   }
 }
