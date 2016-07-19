@@ -16,7 +16,8 @@ import scala.collection.JavaConverters._
 /**
   * Single log file
   */
-class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32) extends Store {
+class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32)
+    extends Store with WithLogFile {
 
 
   /*
@@ -40,13 +41,6 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32) extends 
    - 8 bytes file size
    */
 
-  case class LogFile(val version:Long, val isMerged:Boolean){
-
-    def keyFile = LogStore.this.keyFile(version, isMerged)
-    def valueFile = LogStore.this.valueFile(version, isMerged)
-    val keyBuf = mmap(keyFile)
-    val valueBuf = mmap(valueFile)
-  }
 
   /**
     * Set of active files sorted in descending order (newest first).
@@ -54,11 +48,6 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32) extends 
     * Java collection is used, it supports mutable iterator.
     */
   protected val files = new java.util.TreeMap[Long, LogFile](java.util.Collections.reverseOrder[Long]())
-
-
-  protected val fileKeyExt = ".keys"
-  protected val fileValueExt = ".values"
-  protected val mergedExt = ".merged"
 
   {
 
@@ -105,20 +94,6 @@ class LogStore(val dir:File, val filePrefix:String, val keySize:Int=32) extends 
   private val tombstone = new ByteArrayWrapper(new Array[Byte](0))
 
 
-  protected[iohk] def keyFile(version:Long, isMerged:Boolean=false) =
-      new File(dir, filePrefix+version+fileKeyExt +
-        (if(isMerged) mergedExt else "" ))
-
-  protected[iohk] def valueFile(version:Long, isMerged:Boolean=false) =
-      new File(dir, filePrefix+version+fileValueExt +
-        (if(isMerged) mergedExt else "" ))
-
-  protected def mmap(file: File): ByteBuffer = {
-    val c = FileChannel.open(file.toPath, StandardOpenOption.READ)
-    val ret = c.map(MapMode.READ_ONLY, 0, file.length())
-    c.close()
-    return ret
-  }
 
   /** iterates over all values in single version. Null value is tombstone. */
   protected def versionIterator(version: Long): Iterator[(K, V)] = {

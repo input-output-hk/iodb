@@ -12,7 +12,7 @@ import scala.collection.mutable.ArrayBuffer
 /**
   * Store which combines append-only log and index files
   */
-class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10,
+class LSMStore(dir: File, keySize: Int = 32,
                backgroundThreads: Int = 2) extends Store {
 
   protected val logger = LoggerFactory.getLogger(this.getClass)
@@ -50,8 +50,8 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10,
     }
   }
 
-  /** gets value from sharded index, ignore log */
-  protected[iodb] def getFromShard(key: K): V = {
+  /** gets value from sharded buffer, ignore log */
+  protected[iodb] def getFromShardBuffer(key: K): V = {
     lock.readLock().lock()
     try {
       val shard = shards.ceilingEntry(key).getValue
@@ -62,6 +62,16 @@ class LSMStore(dir: File, keySize: Int = 32, keepLastN: Int = 10,
   }
 
 
+  /** gets value from sharded index, ignore log */
+  protected[iodb] def getFromShardIndex(key: K): V = {
+    lock.readLock().lock()
+    try {
+      val shard = shards.ceilingEntry(key).getValue
+      return shard.get(key)
+    } finally {
+      lock.readLock().unlock()
+    }
+  }
   override def lastVersion: Long = {
     lock.readLock().lock()
     try {
