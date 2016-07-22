@@ -1,7 +1,7 @@
 Auth Dictionary and IODB
 =============================
 
-Using Merkel Tree, Skip List or similar data structure for authentication  IODB brings following problems:
+Using Merkle Tree, Skip List or similar data structure for authentication  IODB brings following problems:
 
 - Data structure has to be regenerated for each update. It is not enough to prove that key existed on older version, but we also need to prove that key was not deleted in recent update.
 
@@ -39,8 +39,8 @@ If keys are deleted and single Merge Table becomes too small, it merges with nei
 Signed versus Hashed authentication
 --------------------------------------------
 
-Merkel Trees use hash value for authentication. We know Root Hash of an tree, and that is enough to verify all values. In this case authentication proof is a sequence of nodes (or operations) which matches the Root Hash. 
-To perform independent verification of Root Hash we need all data within from Merkel Tree.
+Merkle Trees use hash value for authentication. We know Root Hash of an tree, and that is enough to verify all values. In this case authentication proof is a sequence of nodes (or operations) which matches the Root Hash. 
+To perform independent verification of Root Hash we need all data within from Merkle Tree.
 
 There is a second way to authenticate tree content. It relies on public-private keys. Updates are signed by private key. Proof is to provide sequence of nodes (or operations) with valid signature. 
  
