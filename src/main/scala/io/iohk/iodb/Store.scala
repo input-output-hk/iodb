@@ -17,7 +17,7 @@ trait Store {
     get(keys, (key: K, value: V) =>
       ret += ((key, value))
     )
-    return ret;
+    ret
   }
 
   /** gets values associated with keys, consumer is called for each result */
@@ -32,7 +32,7 @@ trait Store {
   def clean(version:Long)
 
   /** pause cleaning operation */
-  def cleanStop()
+  def cleanStop(): Unit //TODO: Try[Unit] ?
 
   /** returns versionID from last update, used when Scorex starts */
   def lastVersion: Long
@@ -43,5 +43,5 @@ trait Store {
   /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
   def rollback(versionID: Long)
 
-  def close()
+  def close(): Unit //TODO: Try[Unit] ?
 }

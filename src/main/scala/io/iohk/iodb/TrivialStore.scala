@@ -39,7 +39,7 @@ class TrivialStore(
       .filter(pattern.pattern.matcher(_).matches())
       .map(_.substring(l).toLong)
 
-    files2.foreach(files.add(_))
+    files2.foreach(files.add)
 
     if (files.isEmpty) {
       _lastVersion = 0
@@ -54,9 +54,7 @@ class TrivialStore(
 
   protected def lastFile() = new File(dir, filePrefix + lastVersion)
 
-  override def get(key: K): V = {
-    return data.get(key)
-  }
+  override def get(key: K): V = data.get(key)
 
   override def lastVersion(): Long = _lastVersion
 
@@ -94,10 +92,9 @@ class TrivialStore(
       }
     }
 
-
     //save map
-    val fout = new FileOutputStream(lastFile());
-    val oi = new ObjectOutputStream(fout);
+    val fout = new FileOutputStream(lastFile())
+    val oi = new ObjectOutputStream(fout)
     oi.writeObject(data)
     oi.flush()
     fout.getFD.sync()
@@ -127,7 +124,6 @@ class TrivialStore(
     val in = new ObjectInputStream(new FileInputStream(lastFile()))
     data = in.readObject().asInstanceOf[util.HashMap[K, V]]
     in.close()
-
   }
 
   override def clean(version:Long) {
@@ -142,7 +138,6 @@ class TrivialStore(
   }
 
   override def cleanStop() {
-
   }
 
   override def close() {
