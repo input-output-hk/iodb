@@ -32,7 +32,7 @@ object DBBench {
           r.nextBytes(key)
           val value = new Array[Byte](valueSize)
           r.nextBytes(value)
-          (new ByteArrayWrapper(key), new ByteArrayWrapper(value))
+          (ByteArrayWrapper(key), ByteArrayWrapper(value))
         }
 
         version += 1
@@ -49,12 +49,12 @@ object DBBench {
           r.nextBytes(key)
           val value = new Array[Byte](valueSize)
           r.nextBytes(value)
-          new ByteArrayWrapper(key)
+          ByteArrayWrapper(key)
         }
 
         version += 1
 
-        toGet.foreach(store.get(_))
+        toGet.foreach(store.get)
       }
     }
 
