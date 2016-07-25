@@ -39,6 +39,10 @@ class LSMStore(dir: File, keySize: Int = 32,
       taskShardLog()
     }, 1000L, 1000L, TimeUnit.MILLISECONDS)
 
+    executor.scheduleWithFixedDelay(runnable {
+      taskShardMerge()
+    }, 1000L, 1000L, TimeUnit.MILLISECONDS)
+
   }
 
   override def get(key: K): V = {
@@ -50,20 +54,8 @@ class LSMStore(dir: File, keySize: Int = 32,
     }
   }
 
-  /** gets value from sharded buffer, ignore log */
-  protected[iodb] def getFromShardBuffer(key: K): V = {
-    lock.readLock().lock()
-    try {
-      val shard = shards.ceilingEntry(key).getValue
-      return shard.get(key)
-    } finally {
-      lock.readLock().unlock()
-    }
-  }
-
-
   /** gets value from sharded index, ignore log */
-  protected[iodb] def getFromShardIndex(key: K): V = {
+  protected[iodb] def getFromShard(key: K): V = {
     lock.readLock().lock()
     try {
       val shard = shards.ceilingEntry(key).getValue
@@ -187,6 +179,28 @@ class LSMStore(dir: File, keySize: Int = 32,
       }
 
       taskShardLogForce()
+    } finally {
+      lock.writeLock().unlock()
+    }
+  }
+
+
+  protected[iodb] def taskShardMerge(): Unit = {
+    lock.writeLock().lock()
+    try {
+      //TODO select log to compact
+      val log = shards.firstEntry().getValue
+
+      //if there is enough unmerged versions, start merging
+      val unmergedCount = log.countUnmergedVersions()
+      if(unmergedCount<50)
+        return;
+
+      log.merge();
+
+      if(logger.isDebugEnabled())
+        logger.debug("Task - Log Merge completed, merged "+unmergedCount+" versions")
+
     } finally {
       lock.writeLock().unlock()
     }

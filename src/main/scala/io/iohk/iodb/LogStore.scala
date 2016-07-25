@@ -14,7 +14,6 @@ import scala.collection.JavaConverters._
 class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
   extends Store with WithLogFile {
 
-
   /*
   There are two files, one with keys, second with values.
 
@@ -138,6 +137,8 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
         (e._1, version, e._2)
       }.asJava
     }.asJavaCollection
+
+    //TODO end iters at first merged (including)
 
     //merge multiple iterators, result iterator is sorted union of all iters
     var prevKey: K = null
@@ -284,7 +285,7 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
   }
 
 
-  protected def updateSorted(versionId: Long, isMerged: Boolean, toUpdate: Iterator[(K, V)]): Unit = {
+  protected[iohk] def updateSorted(versionId: Long, isMerged: Boolean, toUpdate: Iterator[(K, V)]): Unit = {
 
     // keys OutputStream
     val keysFile = keyFile(versionId, isMerged)
@@ -377,9 +378,6 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
     val merged = keyValues(versionId)
     updateSorted(versionId, isMerged = true, toUpdate = merged)
 
-    val keyBuf = mmap(keyFile(versionId, isMerged = true))
-    val valuebuf = mmap(valueFile(versionId, isMerged = true))
-
     //remove old files
     val logFiles = files.tailMap(versionId, true).values().asScala.toBuffer
     for (logFile <- logFiles) {
@@ -397,6 +395,23 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
   }
 
 
+  def merge(): Unit = {
+    val versionId = lastVersion
+    val iter = keyValues(versionId)
+    updateSorted(versionId, isMerged = true, toUpdate = iter)
+    files.put(versionId, new LogFile(versionId, isMerged = true))
+  }
+
   /** returns copy of opened files */
   protected[iodb] def getFiles() = new java.util.TreeMap(files)
+
+  protected[iodb] def countUnmergedVersions():Long = {
+    var count = 0
+    files.asScala.values.find{log=>
+      count += 1
+      log.isMerged
+    }
+    count
+  }
+
 }
