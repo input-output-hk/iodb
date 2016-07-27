@@ -13,19 +13,32 @@ import scala.collection.mutable.ArrayBuffer
   * Store which combines append-only log and index files
   */
 class LSMStore(dir: File, keySize: Int = 32,
-               backgroundThreads: Int = 2) extends Store {
+               backgroundThreads: Int = 1) extends Store {
+
+
+  //TODO configurable, perhaps track number of modifications
+  protected val shardEvery = 3L
+
+  protected val minMergeSize = 1024*1024L
+  protected val minMergeCount = 10L
 
   protected val logger = LoggerFactory.getLogger(this.getClass)
 
-  protected val appendLog = new LogStore(dir, filePrefix = "log-", keySize = keySize)
+  /** main log, contains all data in non-sharded form. Is never compacted, compaction happens in shards */
+  protected val mainLog = new LogStore(dir, filePrefix = "log-", keySize = keySize)
   protected val executor = Executors.newScheduledThreadPool(backgroundThreads)
 
+  /** map of shards. Key is upper inclusive bound of shard. Value is log containing sharded values */
   protected val shards = new java.util.TreeMap[K, LogStore]()
 
+  /** greatest key for this store */
   protected val maxKey = new ByteArrayWrapper(Utils.greatest(keySize))
 
-  protected val shardCount = new AtomicLong(0)
+  /** generates incremental sequence of shard IDs */
+  protected val shardIdSeq = new AtomicLong(0)
 
+  /** concurrent lock, any file creation should be under write lock,
+    * data read should be under read lock */
   protected val lock = new ReentrantReadWriteLock()
 
   {
@@ -48,13 +61,23 @@ class LSMStore(dir: File, keySize: Int = 32,
   override def get(key: K): V = {
     lock.readLock().lock()
     try {
-      return appendLog.get(key)
+      val shard = shards.ceilingEntry(key).getValue
+      val mainLogVersion = lastVersion
+      val shardVersion = shard.lastVersion
+      if(mainLogVersion!=shardVersion){
+        //some entries were not sharded yet, try main log
+        val ret = mainLog.get(key=key, versionId = lastVersion, stopAtVersion = shardVersion)
+        if(ret!=null)
+          return ret.getOrElse(null); //null is for tombstones found in main log
+      }
+
+      return shard.get(key)
     } finally {
       lock.readLock().unlock()
     }
   }
 
-  /** gets value from sharded index, ignore log */
+  /** gets value from sharded log, ignore main log */
   protected[iodb] def getFromShard(key: K): V = {
     lock.readLock().lock()
     try {
@@ -67,7 +90,7 @@ class LSMStore(dir: File, keySize: Int = 32,
   override def lastVersion: Long = {
     lock.readLock().lock()
     try {
-      return appendLog.lastVersion
+      return mainLog.lastVersion
     } finally {
       lock.readLock().unlock()
     }
@@ -76,7 +99,7 @@ class LSMStore(dir: File, keySize: Int = 32,
   override def update(versionID: Long, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
     lock.writeLock().lock()
     try {
-      appendLog.update(versionID, toRemove, toUpdate)
+      mainLog.update(versionID, toRemove, toUpdate)
     } finally {
       lock.writeLock().unlock()
     }
@@ -85,7 +108,7 @@ class LSMStore(dir: File, keySize: Int = 32,
   override def rollback(versionID: Long): Unit = {
     lock.writeLock().lock()
     try {
-      appendLog.rollback(versionID)
+      mainLog.rollback(versionID)
     } finally {
       lock.writeLock().unlock()
     }
@@ -94,32 +117,35 @@ class LSMStore(dir: File, keySize: Int = 32,
   override def clean(version: Long): Unit = {
     lock.writeLock().lock()
     try {
-      appendLog.clean(version)
+      mainLog.clean(version)
     } finally {
       lock.writeLock().unlock()
     }
   }
 
+  protected[iodb] def closeExecutor() = {
+    executor.shutdown()
+    executor.awaitTermination(1, TimeUnit.DAYS) //TODO better executor shutdown
+
+  }
+
+
   override def close(): Unit = {
     lock.writeLock().lock()
     try {
-      executor.shutdown()
-      executor.awaitTermination(1, TimeUnit.DAYS) //TODO better executor shutdown
-      appendLog.close()
+      closeExecutor()
+      mainLog.close()
     } finally {
       lock.writeLock().unlock()
     }
   }
 
   override def cleanStop(): Unit = {
-    appendLog.cleanStop()
+    mainLog.cleanStop()
   }
 
   //TODO restore this var on file reopen
   protected var lastShardedLogVersion = -1L
-
-  //TODO configurable, perhaps track number of modifications
-  protected val shardEvery = 20L
 
   protected[iodb] def taskShardLogForce(): Unit = {
     lock.writeLock().lock()
@@ -146,7 +172,7 @@ class LSMStore(dir: File, keySize: Int = 32,
           shardCounter += 1;
         }
       }
-      for ((key, value) <- appendLog.keyValues(lastVersion, lastShardedLogVersion)) {
+      for ((key, value) <- mainLog.keyValues(lastVersion, lastShardedLogVersion)) {
         keyCounter += 1
         //progress to the next key if needed
         while (nextKey.compareTo(key) < 0) {
@@ -172,7 +198,7 @@ class LSMStore(dir: File, keySize: Int = 32,
   protected[iodb] def taskShardLog(): Unit = {
     lock.writeLock().lock()
     try {
-      val lastVersion = appendLog.lastVersion
+      val lastVersion = mainLog.lastVersion
       if (lastVersion < lastShardedLogVersion + shardEvery) {
         //do not shard yet
         return
@@ -192,8 +218,10 @@ class LSMStore(dir: File, keySize: Int = 32,
       val log = shards.firstEntry().getValue
 
       //if there is enough unmerged versions, start merging
-      val unmergedCount = log.countUnmergedVersions()
-      if(unmergedCount<50)
+      val (unmergedCount,unmergedSize) = log.countUnmergedVersionsAndSize()
+
+//      println("Unmerged count: "+unmergedCount + " - "+unmergedSize)
+      if(unmergedCount<minMergeCount && (unmergedSize<minMergeSize))
         return;
 
       log.merge();
@@ -212,7 +240,7 @@ class LSMStore(dir: File, keySize: Int = 32,
   protected[iodb] def shardAdd(key: V) = {
     lock.writeLock().lock()
     try {
-      val log = new LogStore(dir = dir, filePrefix = "shardBuf-" + shardCount.incrementAndGet() + "-", keySize = keySize)
+      val log = new LogStore(dir = dir, filePrefix = "shardBuf-" + shardIdSeq.incrementAndGet() + "-", keySize = keySize)
 
       val old = shards.put(key, log)
       assert(old == null)

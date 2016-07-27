@@ -156,24 +156,33 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
     iter
   }
 
+  override def get(key: K): V = {
+    val v = get(key, lastVersion)
+    if(v==null || v == None)
+      return null
+    return v.get
+  }
 
-  override def get(key: K): V = get(key, lastVersion)
-
-  def get(key: K, versionId: Long): V = {
-    val versions = files.tailMap(versionId).keySet().asScala
-    for (version <- versions) {
-      val ret = versionGet(version, key)
+  protected[iodb] def get(key: K, versionId: Long, stopAtVersion:Long = -1): Option[V] = {
+    val versions =
+      if(stopAtVersion>0)
+        files.subMap(versionId, true, stopAtVersion, false).asScala
+      else
+        files.tailMap(versionId).asScala
+    for ((version, logFile) <- versions) {
+      val ret = versionGet(logFile,key)
       if (tombstone eq ret)
-        return null
+        return None //deleted key
       if (ret != null)
-        return ret
+        return Some(ret) // value was found
+      if(logFile.isMerged)
+        return null  //contains all versions, will not be found in next versions
     }
     null
   }
 
 
-  protected def versionGet(versionId: Long, key: K): V = {
-    val logFile = files.get(versionId)
+  protected def versionGet(logFile:LogFile, key: K): V = {
     val keyBuf = logFile.keyBuf.duplicate()
     val valueBuf = logFile.valueBuf.duplicate()
 
@@ -405,13 +414,17 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
   /** returns copy of opened files */
   protected[iodb] def getFiles() = new java.util.TreeMap(files)
 
-  protected[iodb] def countUnmergedVersions():Long = {
-    var count = 0
+  protected[iodb] def countUnmergedVersionsAndSize():(Long, Long) = {
+    var count = 0L
+    var size = 0L
     files.asScala.values.find{log=>
-      count += 1
+      if(!log.isMerged){
+        count += 1
+        size += log.keyBuf.limit()
+      }
       log.isMerged
     }
-    count
+    (count, size)
   }
 
 }
