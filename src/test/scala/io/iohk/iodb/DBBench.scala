@@ -3,6 +3,8 @@ package io.iohk.iodb
 import java.io.File
 import java.util.Random
 
+case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSizeMb: Long)
+
 /**
   * Benchmark for IODB
   */
@@ -15,13 +17,19 @@ object DBBench {
 
   def main(args: Array[String]) {
     var dir = TestUtils.tempDir()
-    bench(new LSMStore(dir, keySize = keySize), dir)
+    val lb = bench(new LSMStore(dir, keySize = keySize), dir)
+    printlnResult(lb)
 
     dir = TestUtils.tempDir()
-    bench(new RocksStore(dir), dir)
+    val rb = bench(new RocksStore(dir), dir)
+    printlnResult(rb)
+
+    if (lb.getTime < rb.getTime && lb.insertTime < rb.insertTime) {
+      println("IODB won!")
+    }
   }
 
-  def bench(store: Store, dir:File): Unit = {
+  def bench(store: Store, dir: File): BenchResult = {
     val r = new Random(1)
     var version = 0
     //insert random values
@@ -58,12 +66,17 @@ object DBBench {
       }
     }
 
-    println("Store: "+store.getClass)
-    println("Insert time:  " + insertTime)
-    println("Get time:     " + getTime)
-    println("Store size: "+TestUtils.dirSize(dir)/(1024*1024)+" MB")
+    val br = BenchResult(store.getClass.toString, insertTime, getTime, TestUtils.dirSize(dir) / (1024 * 1024))
 
     store.close()
     TestUtils.deleteRecur(dir)
+    br
+  }
+
+  def printlnResult(res: BenchResult): Unit = {
+    println(s"Store: ${res.storage}")
+    println(s"Insert time:  ${res.insertTime}")
+    println(s"Get time: ${res.getTime}")
+    println(s"Store size: ${res.storeSizeMb} MB")
   }
 }
