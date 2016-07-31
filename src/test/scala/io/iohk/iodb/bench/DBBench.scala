@@ -12,14 +12,14 @@ case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSi
   */
 object DBBench {
 
-  val updates = 1000
+  val updates = 10000
   val keyCount = 100
   val keySize = 32
   val valueSize = 128
 
   def main(args: Array[String]) {
     var dir = TestUtils.tempDir()
-    val lb = bench(new LSMStore(dir, keySize = keySize), dir)
+    val lb = bench(new LSMStore(dir, keySize = keySize, keepSingleVersion = true), dir)
     printlnResult(lb)
 
     dir = TestUtils.tempDir()

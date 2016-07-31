@@ -2,6 +2,7 @@ package io.iohk.iodb
 
 import java.io.{BufferedOutputStream, DataOutputStream, File, FileOutputStream}
 import java.util.Comparator
+import java.util.concurrent.ConcurrentSkipListMap
 
 import com.google.common.collect.Iterators
 
@@ -11,8 +12,14 @@ import scala.collection.JavaConverters._
 /**
   * Single log file
   */
-class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
-  extends Store with WithLogFile {
+class LogStore(
+                val dir: File,
+                val filePrefix: String,
+                val keySize: Int = 32,
+                protected val fileLocks:MultiLock[File] = new MultiLock[File](),
+                val keepSingleVersion:Boolean = false,
+                val fileSync:Boolean = true
+    )extends Store with WithLogFile {
 
   /*
   There are two files, one with keys, second with values.
@@ -41,7 +48,7 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
     * First value is key file, second value is value file.
     * Java collection is used, it supports mutable iterator.
     */
-  protected val files = new java.util.TreeMap[Long, LogFile](java.util.Collections.reverseOrder[Long]())
+  protected val files = new ConcurrentSkipListMap[Long, LogFile](java.util.Collections.reverseOrder[Long]())
 
   {
 
@@ -164,6 +171,8 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
   }
 
   protected[iodb] def get(key: K, versionId: Long, stopAtVersion:Long = -1): Option[V] = {
+    if(files.isEmpty)
+      return null;
     val versions =
       if(stopAtVersion>0)
         files.subMap(versionId, true, stopAtVersion, false).asScala
@@ -278,14 +287,16 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
 
     keysB.flush()
     keysFS.flush()
-    keysFS.getFD.sync() //TODO sync can be optional
+    if(fileSync)
+      keysFS.getFD.sync()
     assert(keysFileSize == keysFS.getChannel.position())
     keysB.close()
     keysB.close()
 
     valuesB.flush()
     valuesFS.flush()
-    valuesFS.getFD.sync()
+    if(fileSync)
+      valuesFS.getFD.sync()
     assert(valueOffset == valuesFS.getChannel.position())
     valuesB.close()
     valuesB.close()
@@ -408,7 +419,19 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
     val versionId = lastVersion
     val iter = keyValues(versionId)
     updateSorted(versionId, isMerged = true, toUpdate = iter)
+    if(keepSingleVersion){
+      //delete all files from files
+      deleteAllFiles()
+    }
     files.put(versionId, new LogFile(versionId, isMerged = true))
+  }
+
+  protected[iodb] def deleteAllFiles(): Unit = {
+    for (f <- files.values.asScala) {
+      f.keyFile.delete()
+      f.valueFile.delete()
+    }
+    files.clear()
   }
 
   /** returns copy of opened files */
@@ -427,4 +450,16 @@ class LogStore(val dir: File, val filePrefix: String, val keySize: Int = 32)
     (count, size)
   }
 
+  protected[iodb] def lockFiles(fromVersion:Long, toVersion:Long): Unit ={
+    for(file <- files.subMap(fromVersion, toVersion).values().asScala){
+      fileLocks.lock(file.keyFile)
+    }
+  }
+
+
+  protected[iodb] def unlockFiles(fromVersion:Long, toVersion:Long): Unit ={
+    for(file <- files.subMap(fromVersion, toVersion).values().asScala){
+      fileLocks.unlock(file.keyFile)
+    }
+  }
 }

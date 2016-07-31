@@ -3,7 +3,7 @@ package io.iohk.iodb
 import java.io._
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
-import java.util.concurrent.{Executors, TimeUnit}
+import java.util.concurrent.{ConcurrentSkipListMap, Executors, TimeUnit}
 
 import org.slf4j.LoggerFactory
 
@@ -12,8 +12,12 @@ import scala.collection.mutable.ArrayBuffer
 /**
   * Store which combines append-only log and index files
   */
-class LSMStore(dir: File, keySize: Int = 32,
-               backgroundThreads: Int = 1) extends Store {
+class LSMStore(
+                dir: File,
+                keySize: Int = 32,
+                backgroundThreads: Int = 1,
+                val keepSingleVersion:Boolean = false
+              ) extends Store {
 
 
   //TODO configurable, perhaps track number of modifications
@@ -24,12 +28,16 @@ class LSMStore(dir: File, keySize: Int = 32,
 
   protected val logger = LoggerFactory.getLogger(this.getClass)
 
+
+  protected val fileLocks = new MultiLock[File]()
+
   /** main log, contains all data in non-sharded form. Is never compacted, compaction happens in shards */
-  protected val mainLog = new LogStore(dir, filePrefix = "log-", keySize = keySize)
+  protected val mainLog = new LogStore(dir, filePrefix = "log-", keySize = keySize,
+      fileLocks = fileLocks, keepSingleVersion = keepSingleVersion)
   protected val executor = Executors.newScheduledThreadPool(backgroundThreads)
 
   /** map of shards. Key is upper inclusive bound of shard. Value is log containing sharded values */
-  protected val shards = new java.util.TreeMap[K, LogStore]()
+  protected val shards = new ConcurrentSkipListMap[K, LogStore]()
 
   /** greatest key for this store */
   protected val maxKey = new ByteArrayWrapper(Utils.greatest(keySize))
@@ -151,9 +159,6 @@ class LSMStore(dir: File, keySize: Int = 32,
     lock.writeLock().lock()
     try {
       val lastVersion = this.lastVersion
-      if (logger.isDebugEnabled)
-        logger.debug("Task - Shard Log started, using data between version " +
-          lastShardedLogVersion + " and " + lastVersion)
       //iterator over data modified in last shard
       val toDelete = new ArrayBuffer[K]()
       val toUpdate = new ArrayBuffer[(K, V)]()
@@ -187,9 +192,15 @@ class LSMStore(dir: File, keySize: Int = 32,
         }
       }
       flushBuffers()
-      lastShardedLogVersion = lastVersion
       if (logger.isDebugEnabled())
-        logger.debug("Task - Log Shard completed. " + keyCounter + " keys into " + shardCounter + " shards.")
+        logger.debug("Task - Log Shard completed. " + keyCounter + " keys into " +
+          shardCounter + " shards. Versions between " +
+          lastShardedLogVersion + " and " + lastVersion)
+      lastShardedLogVersion = lastVersion
+      if(keepSingleVersion) {
+        //everything is distributed to shards,delete all files
+        mainLog.deleteAllFiles()
+      }
     } finally {
       lock.writeLock().unlock()
     }
@@ -240,7 +251,9 @@ class LSMStore(dir: File, keySize: Int = 32,
   protected[iodb] def shardAdd(key: V) = {
     lock.writeLock().lock()
     try {
-      val log = new LogStore(dir = dir, filePrefix = "shardBuf-" + shardIdSeq.incrementAndGet() + "-", keySize = keySize)
+      val log = new LogStore(dir = dir, filePrefix = "shardBuf-" + shardIdSeq.incrementAndGet() + "-",
+        keySize = keySize, fileLocks = fileLocks, keepSingleVersion = keepSingleVersion,
+        fileSync=false)
 
       val old = shards.put(key, log)
       assert(old == null)
