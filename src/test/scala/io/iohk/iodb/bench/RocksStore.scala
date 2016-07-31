@@ -1,8 +1,9 @@
-package io.iohk.iodb
+package io.iohk.iodb.bench
 
 import java.io.File
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
+import io.iohk.iodb.{ByteArrayWrapper, Store}
 import org.rocksdb._
 
 /**

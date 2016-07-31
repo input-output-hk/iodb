@@ -1,7 +1,9 @@
-package io.iohk.iodb
+package io.iohk.iodb.bench
 
 import java.io.File
 import java.util.Random
+
+import io.iohk.iodb._
 
 case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSizeMb: Long)
 
