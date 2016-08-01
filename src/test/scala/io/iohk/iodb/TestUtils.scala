@@ -67,6 +67,13 @@ object TestUtils {
     System.currentTimeMillis() - s
   }
 
+  /** measures time it takes to execute function */
+  def runningTime[A](computation: => A): (Long, A) = {
+    val s = System.currentTimeMillis()
+    val res = computation
+    (System.currentTimeMillis() - s, res)
+  }
+
   def fromLong(id: Long): ByteArrayWrapper = {
     val b = ByteBuffer.allocate(8)
     b.putLong(0, id)
