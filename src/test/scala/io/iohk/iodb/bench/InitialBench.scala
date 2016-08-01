@@ -4,7 +4,9 @@ import java.io.File
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store, TestUtils}
 import scala.util.{Random, Try}
 
-
+/**
+  * Performance benchmark utility simulating initial blockchain processing
+  */
 object InitialBench {
   type Key = Array[Byte]
 
