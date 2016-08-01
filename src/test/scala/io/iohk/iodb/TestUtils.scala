@@ -61,7 +61,7 @@ object TestUtils {
   }
 
   /** measures time it takes to execute function */
-  def stopwatch(e: () => Unit): Long = {
+  def runningTime(e: () => Unit): Long = {
     val s = System.currentTimeMillis()
     e.apply()
     System.currentTimeMillis() - s

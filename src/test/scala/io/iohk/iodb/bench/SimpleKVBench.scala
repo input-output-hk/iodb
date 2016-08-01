@@ -35,7 +35,7 @@ object SimpleKVBench {
     val r = new Random(1)
     var version = 0
     //insert random values
-    val insertTime = TestUtils.stopwatch { () =>
+    val insertTime = TestUtils.runningTime { () =>
       for (i <- 0 until updates) {
         val toInsert = (0 until keyCount).map { i =>
           val key = new Array[Byte](keySize)
@@ -51,7 +51,7 @@ object SimpleKVBench {
     }
 
 
-    val getTime = TestUtils.stopwatch { () =>
+    val getTime = TestUtils.runningTime { () =>
       val r = new Random(1)
       for (i <- 0 until updates) {
         val toGet = (0 until keyCount).map { i =>
