@@ -10,7 +10,7 @@ case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSi
 /**
   * Benchmark for IODB
   */
-object DBBench {
+object SimpleKVBench {
 
   val updates = 10000
   val keyCount = 100
