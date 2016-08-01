@@ -61,9 +61,9 @@ object TestUtils {
   }
 
   /** measures time it takes to execute function */
-  def runningTime(e: () => Unit): Long = {
+  def runningTime(computation: () => Unit): Long = {
     val s = System.currentTimeMillis()
-    e.apply()
+    computation.apply()
     System.currentTimeMillis() - s
   }
 
