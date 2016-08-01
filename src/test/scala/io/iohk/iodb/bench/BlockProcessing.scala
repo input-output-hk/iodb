@@ -6,9 +6,9 @@ import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store, TestUtils}
 
 object BlockProcessing extends Benchmark {
 
-  val InitialSize = 500000000
+  val InitialSize = 500000 //000
 
-  val Outputs = 10000
+  val Outputs = 1000 //0
   val Blocks = 50
 
   val keysCache = Seq[ByteArrayWrapper]()
