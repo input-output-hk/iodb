@@ -7,12 +7,7 @@ import scala.util.{Random, Try}
 /**
   * Performance benchmark utility simulating initial blockchain processing
   */
-object InitialBench {
-  type Key = Array[Byte]
-
-  val keySize = 32
-  val valueSize = 256
-
+object InitialBench extends Benchmark {
   val updates = 500L //should be 1M finally
 
   val inputs = 1900

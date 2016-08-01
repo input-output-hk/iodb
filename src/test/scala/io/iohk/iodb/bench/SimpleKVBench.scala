@@ -10,12 +10,10 @@ case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSi
 /**
   * Benchmark for IODB
   */
-object SimpleKVBench {
+object SimpleKVBench extends Benchmark{
 
   val updates = 1000
   val keyCount = 10
-  val keySize = 32
-  val valueSize = 128
 
   def main(args: Array[String]) {
     var dir = TestUtils.tempDir()
