@@ -12,8 +12,8 @@ case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSi
   */
 object SimpleKVBench {
 
-  val updates = 10000
-  val keyCount = 100
+  val updates = 1000
+  val keyCount = 10
   val keySize = 32
   val valueSize = 128
 
