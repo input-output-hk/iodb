@@ -4,7 +4,7 @@ import org.junit.{Ignore, Test}
 
 class LSMTimerTest extends TestWithTempDir {
 
-  @Test(timeout = 10000L)
+  @Test(timeout = 20000L)
   def shard(): Unit ={
     val s = new LSMStore(dir=dir, keySize = 8)
 
