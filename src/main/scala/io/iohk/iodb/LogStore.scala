@@ -233,6 +233,10 @@ class LogStore(
 
   def update(version: Long, toRemove: Iterable[K],
              toUpdate: Iterable[(K, V)]): Unit = {
+    if(lastVersion>=version) {
+      throw new IllegalArgumentException("versionID in argument is not greater than Store lastVersion")
+    }
+
     val all = new java.util.TreeMap[K, V].asScala
 
     var valueFileSize: Long = baseValueOffset

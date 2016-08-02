@@ -21,10 +21,10 @@ class LogShardTest extends TestWithTempDir{
   }
 
   @Test def getFromShard{
-    for(i <-0L until 110){
+    for(i <-1L until 110){
       val s = sharded()
       val key = TestUtils.fromLong(i)
-      s.update(1L, Nil, List((key,key)))
+      s.update(i, Nil, List((key,key)))
       s.taskShardLogForce()
       assert(s.getFromShard(key) === key)
       s.close()

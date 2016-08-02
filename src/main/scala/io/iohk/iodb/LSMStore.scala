@@ -1,6 +1,7 @@
 package io.iohk.iodb
 
 import java.io._
+import java.util
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.concurrent.{ConcurrentSkipListMap, Executors, ThreadFactory, TimeUnit}
@@ -46,8 +47,12 @@ class LSMStore(
       }
     })
 
-  /** map of shards. Key is upper inclusive bound of shard. Value is log containing sharded values */
-  protected val shards = new ConcurrentSkipListMap[K, LogStore]()
+  /** Map of shards.
+    * Primary key is versionId. Shard bounds change over , so layout for older versions is kept.
+    * Key is upper inclusive bound of shard. Value is log with sharded values */
+  protected val shards:util.NavigableMap[Long, util.NavigableMap[K, LogStore]] =
+      new ConcurrentSkipListMap[Long, util.NavigableMap[K, LogStore]](
+        java.util.Collections.reverseOrder[Long]())
 
   /** greatest key for this store */
   protected val maxKey = new ByteArrayWrapper(Utils.greatest(keySize))
@@ -59,9 +64,9 @@ class LSMStore(
     * data read should be under read lock */
   protected val lock = new ReentrantReadWriteLock()
 
-  protected val _lastVersion = new AtomicLong(-1);
-
   {
+    shards.put(-1L, new ConcurrentSkipListMap[K,LogStore]());
+
     shardAdd(maxKey)
 
     def runnable(f: => Unit): Runnable = new Runnable() {
@@ -81,7 +86,7 @@ class LSMStore(
   override def get(key: K): V = {
     lock.readLock().lock()
     try {
-      val shard = shards.ceilingEntry(key).getValue
+      val shard = shards.firstEntry().getValue.ceilingEntry(key).getValue
       val mainLogVersion = lastVersion
       val shardVersion = shard.lastVersion
       if(mainLogVersion!=shardVersion){
@@ -101,24 +106,28 @@ class LSMStore(
   protected[iodb] def getFromShard(key: K): V = {
     lock.readLock().lock()
     try {
-      val shard = shards.ceilingEntry(key).getValue
+      val shard = shards.lastEntry().getValue.ceilingEntry(key).getValue
       return shard.get(key)
     } finally {
       lock.readLock().unlock()
     }
   }
   override def lastVersion: Long = {
-    _lastVersion.get()
+    lock.readLock().lock()
+    try {
+      return mainLog.lastVersion
+    } finally {
+      lock.readLock().unlock()
+    }
   }
 
   override def update(versionID: Long, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
     lock.writeLock().lock()
     try {
-      if(_lastVersion.get()>=versionID){
+      if(lastVersion>=versionID){
         throw new IllegalArgumentException("versionID in argument is not greater than Store lastVersion")
       }
       mainLog.update(versionID, toRemove, toUpdate)
-      _lastVersion.set(versionID)
     } finally {
       lock.writeLock().unlock()
     }
@@ -128,7 +137,6 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       mainLog.rollback(versionID)
-      _lastVersion.set(mainLog.lastVersion)
     } finally {
       lock.writeLock().unlock()
     }
@@ -175,13 +183,13 @@ class LSMStore(
       val toDelete = new ArrayBuffer[K]()
       val toUpdate = new ArrayBuffer[(K, V)]()
 
-      var nextKey = shards.firstKey()
+      var nextKey = shards.lastEntry().getValue.firstKey()
       var keyCounter = 0L
       var shardCounter = 0L
       def flushBuffers(): Unit = {
         //flush buffer if not empty
         if (!toDelete.isEmpty || !toUpdate.isEmpty) {
-          val shard = shards.get(nextKey)
+          val shard = shards.lastEntry().getValue.get(nextKey)
           //TODO update will sort values, that is unnecessary because buffers are already sorted
           shard.update(lastVersion, toDelete, toUpdate)
           toDelete.clear()
@@ -189,12 +197,13 @@ class LSMStore(
           shardCounter += 1;
         }
       }
+      val shards2 = shards.lastEntry().getValue
       for ((key, value) <- mainLog.keyValues(lastVersion, lastShardedLogVersion)) {
         keyCounter += 1
         //progress to the next key if needed
         while (nextKey.compareTo(key) < 0) {
           flushBuffers()
-          nextKey = shards.higherKey(nextKey)
+          nextKey = shards2.higherKey(nextKey)
         }
 
         if (value == null) {
@@ -238,7 +247,7 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       //TODO select log to compact
-      val log = shards.firstEntry().getValue
+      val log = shards.lastEntry().getValue.firstEntry().getValue
 
       //if there is enough unmerged versions, start merging
       val (unmergedCount,unmergedSize) = log.countUnmergedVersionsAndSize()
@@ -257,7 +266,7 @@ class LSMStore(
     }
   }
 
-  protected[iodb] def getShards = shards
+  protected[iodb] def getShards = shards.lastEntry().getValue
 
 
   protected[iodb] def shardAdd(key: V) = {
@@ -267,7 +276,7 @@ class LSMStore(
         keySize = keySize, fileLocks = fileLocks, keepSingleVersion = keepSingleVersion,
         fileSync=false)
 
-      val old = shards.put(key, log)
+      val old = shards.lastEntry().getValue.put(key, log)
       assert(old == null)
     } finally {
       lock.writeLock().unlock()
