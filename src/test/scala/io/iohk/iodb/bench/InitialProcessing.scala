@@ -21,6 +21,7 @@ object InitialProcessing extends Benchmark {
     }
     println(s"Store: $store")
     println(s"Test time: $time")
+    store.close()
     TestUtils.deleteRecur(dir)
   }
 

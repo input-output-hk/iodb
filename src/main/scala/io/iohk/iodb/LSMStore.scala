@@ -3,7 +3,7 @@ package io.iohk.iodb
 import java.io._
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
-import java.util.concurrent.{ConcurrentSkipListMap, Executors, TimeUnit}
+import java.util.concurrent.{ConcurrentSkipListMap, Executors, ThreadFactory, TimeUnit}
 
 import org.slf4j.LoggerFactory
 
@@ -34,7 +34,17 @@ class LSMStore(
   /** main log, contains all data in non-sharded form. Is never compacted, compaction happens in shards */
   protected val mainLog = new LogStore(dir, filePrefix = "log-", keySize = keySize,
       fileLocks = fileLocks, keepSingleVersion = keepSingleVersion)
-  protected val executor = Executors.newScheduledThreadPool(backgroundThreads)
+
+  /** executor used to run background tasks. Threads are set to deamon so JVM process can exit,
+    *  while background threads are running */
+  protected val executor = Executors.newScheduledThreadPool(backgroundThreads,
+    new ThreadFactory {
+      override def newThread(r: Runnable): Thread = {
+        val t = new Thread(r)
+        t.setDaemon(true)
+        t
+      }
+    })
 
   /** map of shards. Key is upper inclusive bound of shard. Value is log containing sharded values */
   protected val shards = new ConcurrentSkipListMap[K, LogStore]()
@@ -48,6 +58,8 @@ class LSMStore(
   /** concurrent lock, any file creation should be under write lock,
     * data read should be under read lock */
   protected val lock = new ReentrantReadWriteLock()
+
+  protected val _lastVersion = new AtomicLong(-1);
 
   {
     shardAdd(maxKey)
@@ -74,7 +86,7 @@ class LSMStore(
       val shardVersion = shard.lastVersion
       if(mainLogVersion!=shardVersion){
         //some entries were not sharded yet, try main log
-        val ret = mainLog.get(key=key, versionId = lastVersion, stopAtVersion = shardVersion)
+        val ret = mainLog.get(key=key, versionId = mainLogVersion, stopAtVersion = shardVersion)
         if(ret!=null)
           return ret.getOrElse(null); //null is for tombstones found in main log
       }
@@ -96,18 +108,17 @@ class LSMStore(
     }
   }
   override def lastVersion: Long = {
-    lock.readLock().lock()
-    try {
-      return mainLog.lastVersion
-    } finally {
-      lock.readLock().unlock()
-    }
+    _lastVersion.get()
   }
 
   override def update(versionID: Long, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
     lock.writeLock().lock()
     try {
+      if(_lastVersion.get()>=versionID){
+        throw new IllegalArgumentException("versionID in argument is not greater than Store lastVersion")
+      }
       mainLog.update(versionID, toRemove, toUpdate)
+      _lastVersion.set(versionID)
     } finally {
       lock.writeLock().unlock()
     }
@@ -117,6 +128,7 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       mainLog.rollback(versionID)
+      _lastVersion.set(mainLog.lastVersion)
     } finally {
       lock.writeLock().unlock()
     }
