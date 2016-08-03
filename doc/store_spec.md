@@ -123,13 +123,42 @@ Dimensions
 - "Log"
 - IndexId
 
+Log file format
+-------------------
+
+Log file format is limited by following:
+
+- it is append only file created with `FileOutputStream`. It is not possible to write data to start of file. 
+
+- it should detect partially created files, and recover from that (file rename, checksum)
+
+- we use file size to find end of the file. But memory buffers etc do not provide file size.
+
+- keys and values are streamed together, we need to store values in separate file to determine its offset.
+
+- 2GB file size limit, `ByteBuffer` uses `int` for addressing 
+
+
+Log file has following structure
+
+- 8 byte header and version info
+- 4 byte file size, might be 0 on filesystem where file size is provided
+- 4 byte key size
+- 8 byte versionID
+- 8 byte shardID
+- payload (keys or values)
+- 4 byte EOF marker 
+- 4 or 8 byte checksum of entire file
+
 Get operation
-----------------d
+----------------
 
 - Traverse log in reverse order, until key is found
 - Finish traversal at nearest Index Write Buffer or nearest Index File
 - Look up Write Buffer
 - Look up Index File
+
+
 
 TODO
 ---------
