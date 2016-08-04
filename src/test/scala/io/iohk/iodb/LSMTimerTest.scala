@@ -1,5 +1,7 @@
 package io.iohk.iodb
 
+import java.util
+
 import org.junit.{Ignore, Test}
 
 class LSMTimerTest extends TestWithTempDir {
@@ -20,7 +22,7 @@ class LSMTimerTest extends TestWithTempDir {
   }
 
 
-  @Test(timeout = 200000L)
+  @Test(timeout = 20000L)
   def shard_and_merge(): Unit ={
     val s = new LSMStore(dir=dir, keySize = 8)
 

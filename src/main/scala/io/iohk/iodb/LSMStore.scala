@@ -5,10 +5,9 @@ import java.util
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.concurrent.{ConcurrentSkipListMap, Executors, ThreadFactory, TimeUnit}
-
 import org.slf4j.LoggerFactory
-
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.JavaConverters._
 
 /**
   * Store which combines append-only log and index files
@@ -26,6 +25,9 @@ class LSMStore(
 
   protected val minMergeSize = 1024*1024L
   protected val minMergeCount = 10L
+
+  protected val splitSize = 16*1024*1024
+  protected val splitKeyCount:Int = splitSize/(keySize*2)
 
   protected val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -49,13 +51,13 @@ class LSMStore(
 
   /** Map of shards.
     * Primary key is versionId. Shard bounds change over , so layout for older versions is kept.
-    * Key is upper inclusive bound of shard. Value is log with sharded values */
+    * Key is lower inclusive bound of shard. Value is log with sharded values */
   protected val shards:util.NavigableMap[Long, util.NavigableMap[K, LogStore]] =
       new ConcurrentSkipListMap[Long, util.NavigableMap[K, LogStore]](
         java.util.Collections.reverseOrder[Long]())
 
-  /** greatest key for this store */
-  protected val maxKey = new ByteArrayWrapper(Utils.greatest(keySize))
+  /** smallest key for this store */
+  protected def minKey = new ByteArrayWrapper(new Array[Byte](keySize))
 
   /** generates incremental sequence of shard IDs */
   protected val shardIdSeq = new AtomicLong(0)
@@ -67,7 +69,7 @@ class LSMStore(
   {
     shards.put(-1L, new ConcurrentSkipListMap[K,LogStore]());
 
-    shardAdd(maxKey)
+    shardAdd(minKey)
 
     def runnable(f: => Unit): Runnable = new Runnable() {
       def run() = f
@@ -86,7 +88,7 @@ class LSMStore(
   override def get(key: K): V = {
     lock.readLock().lock()
     try {
-      val shard = shards.firstEntry().getValue.ceilingEntry(key).getValue
+      val shard = shards.firstEntry().getValue.floorEntry(key).getValue
       val mainLogVersion = lastVersion
       val shardVersion = shard.lastVersion
       if(mainLogVersion!=shardVersion){
@@ -106,7 +108,7 @@ class LSMStore(
   protected[iodb] def getFromShard(key: K): V = {
     lock.readLock().lock()
     try {
-      val shard = shards.lastEntry().getValue.ceilingEntry(key).getValue
+      val shard = shards.lastEntry().getValue.floorEntry(key).getValue
       return shard.get(key)
     } finally {
       lock.readLock().unlock()
@@ -175,35 +177,46 @@ class LSMStore(
   //TODO restore this var on file reopen
   protected var lastShardedLogVersion = -1L
 
+  /** takes values from main log, and distributes them into shards. This task runs in background thread */
   protected[iodb] def taskShardLogForce(): Unit = {
     lock.writeLock().lock()
     try {
+      val shardLayout = shards.lastEntry().getValue
       val lastVersion = this.lastVersion
-      //iterator over data modified in last shard
+      //buffers which store modified values
       val toDelete = new ArrayBuffer[K]()
       val toUpdate = new ArrayBuffer[(K, V)]()
 
-      var nextKey = shards.lastEntry().getValue.firstKey()
+      // next key in shard, if key becomes equal or greater we must flush the buffer
+      // null indicates end of shards (positive infinity)
+      // get second key
+      var cutOffKey = shardLayout.keySet().asScala.take(1).headOption.getOrElse(null)
+      //log where update will be placed, is one entry before cutOffKey
+      var cutOffLog = shardLayout.firstEntry.getValue
+      // stats
       var keyCounter = 0L
       var shardCounter = 0L
+
+      // this method will flush and clears toDelete and toUpdate buffers
       def flushBuffers(): Unit = {
         //flush buffer if not empty
         if (!toDelete.isEmpty || !toUpdate.isEmpty) {
-          val shard = shards.lastEntry().getValue.get(nextKey)
           //TODO update will sort values, that is unnecessary because buffers are already sorted
-          shard.update(lastVersion, toDelete, toUpdate)
-          toDelete.clear()
+          cutOffLog.update(lastVersion, toDelete, toUpdate)
+
+toDelete.clear()
           toUpdate.clear()
           shardCounter += 1;
         }
       }
-      val shards2 = shards.lastEntry().getValue
       for ((key, value) <- mainLog.keyValues(lastVersion, lastShardedLogVersion)) {
         keyCounter += 1
         //progress to the next key if needed
-        while (nextKey.compareTo(key) < 0) {
+        while (cutOffKey!=null && cutOffKey.compareTo(key) <= 0) {
           flushBuffers()
-          nextKey = shards2.higherKey(nextKey)
+          //move to next log
+          cutOffLog  = shardLayout.get(cutOffKey)
+          cutOffKey = shardLayout.higherKey(cutOffKey)
         }
 
         if (value == null) {
@@ -247,7 +260,8 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       //TODO select log to compact
-      val log = shards.lastEntry().getValue.firstEntry().getValue
+      val shardLayout = shards.lastEntry().getValue
+      val log = shardLayout.firstEntry().getValue
 
       //if there is enough unmerged versions, start merging
       val (unmergedCount,unmergedSize) = log.countUnmergedVersionsAndSize()
@@ -256,7 +270,30 @@ class LSMStore(
       if(unmergedCount<minMergeCount && (unmergedSize<minMergeSize))
         return;
 
-      log.merge();
+      val currVersion = log.lastVersion
+      //load all values
+      val buf = log.keyValues(currVersion).toBuffer
+
+      //check if it needs splitting
+      if(buf.size*keySize >splitSize) {
+        //TODO make sure that shardLayout map is at current versionId
+
+        //insert first part into log
+        var (merge2, buf2) = buf.splitAt(splitKeyCount)
+        log.merge(currVersion, merge2.iterator)
+        //now split buf2 into separate buffers
+        while(!buf2.isEmpty){
+          val (merge2, buf3) = buf2.splitAt(splitKeyCount)
+          buf2 = buf3
+          val startKey = merge2.head._1
+          shardAdd(startKey)
+          shardLayout.get(startKey).merge(currVersion, merge2.iterator)
+        }
+
+      }else{
+        //merge everything into same log
+        log.merge(currVersion, buf.iterator)
+      }
 
       if(logger.isDebugEnabled())
         logger.debug("Task - Log Merge completed, merged "+unmergedCount+" versions")
@@ -268,6 +305,15 @@ class LSMStore(
 
   protected[iodb] def getShards = shards.lastEntry().getValue
 
+  protected[iodb] def printShards(out:PrintStream=System.out): Unit ={
+    out.println("==== Shard Layout ====")
+    for((version, shardLayout)<-shards.asScala){
+      out.println(version)
+      for((key, log) <- shardLayout.asScala){
+        out.println("    "+key)
+      }
+    }
+  }
 
   protected[iodb] def shardAdd(key: V) = {
     lock.writeLock().lock()

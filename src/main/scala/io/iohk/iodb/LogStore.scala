@@ -309,7 +309,7 @@ class LogStore(
   }
 
 
-  protected[iohk] def updateSorted(versionId: Long, isMerged: Boolean, toUpdate: Iterator[(K, V)]): Unit = {
+  protected[iohk] def updateSorted(versionId: Long, isMerged: Boolean, toUpdate: Iterator[(K, V)], fileSizeLimit:Int = -1): Unit = {
 
     // keys OutputStream
     val keysFile = keyFile(versionId, isMerged)
@@ -334,8 +334,12 @@ class LogStore(
 
 
     var keysCount = 0
+    def keysFileSize = baseKeyOffset + keySizeExtra * keysCount
     var valueOffset = baseValueOffset
-    for ((key, value) <- toUpdate) {
+
+    //iterate until toUpdate has more entries, or it becomes too big
+    while(toUpdate.hasNext && (fileSizeLimit == -1 || keysFileSize<fileSizeLimit)){
+      val (key, value)  = toUpdate.next()
       keysB.write(key.data)
       keysB.writeInt(if (value eq tombstone) -1 else value.data.length)
       keysB.writeLong(if (value eq tombstone) -1 else valueOffset)
@@ -347,7 +351,6 @@ class LogStore(
       }
     }
 
-    val keysFileSize = baseKeyOffset + keySizeExtra * keysCount
     keysB.flush()
     assert(keysFileSize == keysFS.getChannel.position())
     //seek back to write file size
@@ -358,7 +361,8 @@ class LogStore(
     keysB2.flush()
 
     keysFS.flush()
-    keysFS.getFD.sync()
+    if(fileSync)
+      keysFS.getFD.sync()
     keysB.close()
     keysB.close()
 
@@ -371,7 +375,8 @@ class LogStore(
     valuesB2.flush()
 
     valuesFS.flush()
-    valuesFS.getFD.sync()
+    if(fileSync)
+      valuesFS.getFD.sync()
     valuesB.close()
     valuesB.close()
   }
@@ -419,10 +424,9 @@ class LogStore(
   }
 
 
-  def merge(): Unit = {
+  protected[iodb] def merge(versionId:Long, data:Iterator[(K,V)]): Unit = {
     val versionId = lastVersion
-    val iter = keyValues(versionId)
-    updateSorted(versionId, isMerged = true, toUpdate = iter)
+    updateSorted(versionId, isMerged = true, toUpdate = data)
     if(keepSingleVersion){
       //delete all files from files
       deleteAllFiles()

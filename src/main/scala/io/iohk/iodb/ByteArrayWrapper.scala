@@ -19,4 +19,6 @@ case class ByteArrayWrapper(data: Array[Byte]) extends Serializable with Compara
   override def hashCode: Int = Utils.byteArrayHashCode(data)
 
   def compareTo(o: ByteArrayWrapper): Int = Utils.BYTE_ARRAY_COMPARATOR.compare(this.data, o.data)
+
+  override def toString: String = getClass.getSimpleName+util.Arrays.toString(data)
 }
