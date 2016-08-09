@@ -55,11 +55,11 @@ We state new properties for an authenticated dictionary considering use-cases st
 Possible Implementation options
 -------------------------------
 
-Sparse Merkle Trees
-Merkle-Patricia Trie from Ethereum
-Authenticated Skiplists
-Authenticated Treaps
-Tuple-Based Authenticated Dictionaries(?)
+- Sparse Merkle Trees
+- Merkle-Patricia Trie from Ethereum
+- Authenticated Skiplists
+- Authenticated Treaps
+- Tuple-Based Authenticated Dictionaries(?)
 
 
 Full-Node Database Layer
@@ -106,6 +106,98 @@ Secondary Indexes
 
 A database could build secondary indexes, e.g. around lock values(precisely, public keys corresponding to locks) in order to find quickly who owns what. Secondary indexes are optional.
 
+SkipList notes
+==============================================
+
+Some notes from practical implementation of Authenticated Skip List
+
+
+Root Hash reconstruction
+----------------------------------------
+
+Root Hash is verified this way:
+ - at start user needs list of all key-value entries. 
+ - user creates an empty authenticated Skip List
+ - user inserts all entries into Skip List
+ - Root Hash from Skip List should match Root Hash from server
+ 
+This approach has performance problem; with large number of  key-value entries, 
+user may not have hardware resources to create new Skip List:
+ - List of keys consumes `X` disk space, but at least another `1.5*X` is needed to create Skip List.
+ - Insertion into Skip List generates random IO. Insertion is only fast if storage fits into memory (RAM). 
+   Speed decreases exponentially, if space consumed by Skip List is larger than memory
+  
+Performance problem can be avoided by creating Skip List from stream. It creates Auth Skip List in reverse order,
+without doing any random IO. It is similar to `Data Pump` from MapDB where it imports B-Tree and avoids write 
+ amplification. 
+ 
+Stream Import has following properties:
+- it needs list of key-value entries sorted in reverse order (Skip List is created from highest key)
+- it requires limited memory (`level count * key size`, where `level count` is maximal number of levels in Skip List)
+- there is no random IO, result is written into append only file (`FileOutputStream`)
+
+Stream Import can also create Root Hash without creating full Skip List on disk. Skip List nodes are only 
+held in memory for short time, before stream moves to different node. It only requires single pass over
+Key-Value entries and `level count * key size`. 
+
+Stream Import description
+----------------------------
+
+Stream Import takes source data in reverse order. 
+It creates Skip List in reverse order, from bottom-right to top-left. 
+
+
+Import starts by creating single node. Opened reference `->` on left is held in memory together with hash of node it points to:
+
+    -> 9 --> INF
+
+Import continues at three nodes. There are two opened references on left side:
+
+    -> 7 --------> 9 --> INF
+       ⭣           ⭣   
+    -> 7 --> 8 --> 9 --> INF
+   
+Six nodes:
+   
+    -------> 4 --------------------> 9 --> INF
+             ⭣                       ⭣
+    -------> 4 --------> 7 --------> 9 --> INF
+             ⭣           ⭣           ⭣   
+    -> 3 --> 4 --> 6 --> 7 --> 8 --> 9 --> INF
+    
+When last(first in reverse order) element is reached, all open references are closed into Skip List Root:
+   
+    ROOT
+    ⭣   
+    1 --------------> 4 --------------------> 9 --> INF
+    ⭣                 ⭣                       ⭣
+    1 --------------> 4 --------> 7 --------> 9 --> INF
+    ⭣                 ⭣           ⭣           ⭣   
+    1 --> 2 --> 3 --> 4 --> 6 --> 7 --> 8 --> 9 --- INF
+
+       
+       
+Stream Import and Hash Path
+------------------------------
+
+Stream Import can also calculate Hash Path from reverse sorted data. It construct data similar way, but 
+it stores more Skip List nodes in memory to find neighbour nodes.  
+
+Here is an image to illustrate path construction. Source: 
+*Authenticated Relational Tables and  Authenticated Skip Lists; Giuseppe Di Battista1 and Bernardo Palazzi*
+
+<img src="img/auth-skip-list-loaded-nodes.png"/>
+
+Skip List and proof of non-existence
+----------------------------------------
+
+Authenticated Skip List can also provide proof of non-existence for key `A`:
+ - Bottom of the Skip List is an Linked List sorted in ascending order. 
+ - To prove non-existence of A we find two neighbours: smaller and greater than `A`
+ - Hash Path Proof provides neighbours for each entry on path
+ - Hash Path for nearest key smaller than `A`, proves that its neighbour is greater than `A`
+
+   
 Appendix 1. IODB Performance Tests 
 ==================================
 
