@@ -10,7 +10,7 @@ import org.scalatest.Assertions
   */
 trait TestWithTempDir extends Assertions {
 
-  var dir: File = null
+  var dir: File = _
 
   def storeSize: Long = TestUtils.dirSize(dir)
 
@@ -19,9 +19,7 @@ trait TestWithTempDir extends Assertions {
   }
 
   @After def deleteFiles(): Unit = {
-    if (dir == null) return;
+    if (dir == null) return
     TestUtils.deleteRecur(dir)
   }
-
-
 }

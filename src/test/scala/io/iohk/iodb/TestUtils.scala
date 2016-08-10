@@ -55,10 +55,8 @@ object TestUtils {
     * Its value is controlled by `-DlongTest=1` property, where the value is test runtime in minutes.
     * By default tests run 5 seconds, but it can be increased by setting this property.
     */
-  def endTimestamp(): Long = {
-    var end: Long = 5 * 1000 + longTest() * 60 * 1000
-    end + System.currentTimeMillis()
-  }
+  def endTimestamp(): Long =
+    5 * 1000 + longTest() * 60 * 1000 + System.currentTimeMillis()
 
   /** measures time it takes to execute function */
   def runningTime(computation: () => Unit): Long = {

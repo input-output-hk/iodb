@@ -23,20 +23,20 @@ class LogStoreTest extends TestWithTempDir {
     }
   }
 
-  @Test def clean_empty(): Unit ={
+  @Test def clean_empty(): Unit = {
     val store = new LogStore(dir = dir, filePrefix = "store")
     val ff = store.getFiles()
     store.clean(100)
-    assert(ff===store.getFiles())
+    assert(ff === store.getFiles())
   }
 
 
-  @Test def clean_versions(): Unit ={
-    var store =  new LogStore(dir = dir, filePrefix = "store", keySize = 8)
+  @Test def clean_versions(): Unit = {
+    var store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)
 
-    for(i <- 0L until 100){
+    for (i <- 0L until 100) {
       val b = TestUtils.fromLong(i)
-      store.update(i, Nil, List((b,b)))
+      store.update(i, Nil, List((b, b)))
     }
     def last = store.getFiles().lastEntry().getValue
 
@@ -45,15 +45,15 @@ class LogStoreTest extends TestWithTempDir {
     assert(last.isMerged)
     assert(last.version === 20)
 
-    def checkExists(version:Long) = {
+    def checkExists(version: Long) = {
       for (i <- 0L until 100) {
         val b = TestUtils.fromLong(i)
         assert(b === store.get(b))
 
-        assert((i==version) === store.keyFile(i, true).exists())
-        assert((i==version) === store.valueFile(i, true).exists())
-        assert((i>version) === store.keyFile(i).exists())
-        assert((i>version) === store.valueFile(i).exists())
+        assert((i == version) === store.keyFile(i, isMerged = true).exists())
+        assert((i == version) === store.valueFile(i, isMerged = true).exists())
+        assert((i > version) === store.keyFile(i).exists())
+        assert((i > version) === store.valueFile(i).exists())
       }
 
     }
@@ -68,12 +68,11 @@ class LogStoreTest extends TestWithTempDir {
     //reopen
     val oldFiles = new util.TreeMap(store.getFiles())
     store.close()
-    store =  new LogStore(dir = dir, filePrefix = "store", keySize = 8)
+    store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)
 
     //use .toString because LogFile has reference to LogStore, that makes equality different
-    assert(oldFiles.toString===store.getFiles().toString)
+    assert(oldFiles.toString === store.getFiles().toString)
 
     checkExists(40)
   }
-
 }

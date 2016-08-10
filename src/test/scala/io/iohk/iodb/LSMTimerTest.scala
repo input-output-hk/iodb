@@ -1,8 +1,6 @@
 package io.iohk.iodb
 
-import java.util
-
-import org.junit.{Ignore, Test}
+import org.junit.Test
 
 class LSMTimerTest extends TestWithTempDir {
 
@@ -29,7 +27,7 @@ class LSMTimerTest extends TestWithTempDir {
     var version = 1L
     //wait until merge file was created
     while(
-      dir.listFiles().filter {_.getName.contains(".merged")}.isEmpty
+      !dir.listFiles().exists(_.getName.contains(".merged"))
     ){
       //add new version
       val key = TestUtils.fromLong(version)
@@ -37,12 +35,5 @@ class LSMTimerTest extends TestWithTempDir {
       version += 1
       Thread.sleep(1)
     }
-
-
-
   }
-
-
-
-
 }

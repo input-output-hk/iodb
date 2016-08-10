@@ -2,8 +2,6 @@ package io.iohk.iodb
 
 import org.junit._
 
-import scala.util.Random
-
 /**
   * Tests store under continuous usage (disk leaks, data corruption etc..
   */

@@ -14,7 +14,7 @@ object BlockProcessing extends Benchmark {
 
   val keysCache = Seq[ByteArrayWrapper]()
 
-  var version = new AtomicLong(1);
+  var version = new AtomicLong(1)
 
   def bench(store: Store, dir: File): Unit = {
     (1 to 1000).foreach { v =>

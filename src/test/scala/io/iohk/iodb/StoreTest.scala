@@ -12,7 +12,7 @@ abstract class StoreTest extends TestWithTempDir {
   def filePrefix:String
   def fileSuffix:String
 
-  def file(version:Int) = new File(dir, filePrefix + version + fileSuffix);
+  def file(version:Int) = new File(dir, filePrefix + version + fileSuffix)
 
   // random Array[Byte]
   val a = (0 until 4).map { i =>
@@ -24,7 +24,7 @@ abstract class StoreTest extends TestWithTempDir {
 
     store.update(1, List.empty, List((a(0), a(1))))
 
-    assert(dir.listFiles().size === 1 * numberOfFilesPerUpdate)
+    assert(dir.listFiles().length === 1 * numberOfFilesPerUpdate)
     assert(file(1).exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
@@ -32,7 +32,7 @@ abstract class StoreTest extends TestWithTempDir {
 
     store.update(2, List(a(0)), List.empty)
 
-    assert(dir.listFiles().size === 2 * numberOfFilesPerUpdate)
+    assert(dir.listFiles().length === 2 * numberOfFilesPerUpdate)
     assert(file(2).exists())
     assert(store.lastVersion === 2)
 
@@ -40,7 +40,7 @@ abstract class StoreTest extends TestWithTempDir {
 
     store.rollback(1)
 
-    assert(dir.listFiles().size === 1 * numberOfFilesPerUpdate)
+    assert(dir.listFiles().length === 1 * numberOfFilesPerUpdate)
     assert(file(1).exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
