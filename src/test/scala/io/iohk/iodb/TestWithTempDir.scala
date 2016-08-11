@@ -5,9 +5,6 @@ import java.io.File
 import org.junit.{After, Before}
 import org.scalatest.Assertions
 
-/**
-  * Created by jan on 6/20/16.
-  */
 trait TestWithTempDir extends Assertions {
 
   var dir: File = _
