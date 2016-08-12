@@ -3,23 +3,38 @@ package io.iohk.iodb.skiplist
 import io.iohk.iodb.ByteArrayWrapper
 import org.mapdb._
 
+import scala.collection.mutable
+
 
 object AuthSkipList{
   type K = ByteArrayWrapper
   type V = ByteArrayWrapper
   type Recid = Long
+  type Hash = Int //TODO change to crypto hash, Array[Byte]
 
   def empty(store:Store, keySize:Int):AuthSkipList = {
     //insert empty root node
     val lowestKey = new ByteArrayWrapper(new Array[Byte](keySize))
-    val headNode = new Node(key = lowestKey, value=null, rightLink = 0L, bottomLink = 0L)
+    val hash = nodeHash(key=lowestKey, value=null, rightHash = 0, bottomHash = 0) //TODO should this be included??
+    val headNode = new Node(key = lowestKey, value=null, hash = hash, rightLink = 0L, bottomLink = 0L)
     val headRecid = store.put(headNode, new NodeSerializer(keySize=keySize))
     new AuthSkipList(store=store, headRecid = headRecid, keySize=keySize)
+  }
+
+
+  def nodeHash(key:K, value:V, rightHash:Hash, bottomHash:Hash): Hash ={
+    val m = -1640531527
+    var ret = key.hashCode*m
+    if(value!=null)
+      ret+=value.hashCode*m
+    ret+=rightHash*m
+    ret+=bottomHash*m
+    ret
   }
 }
 import AuthSkipList._
 
-protected[iodb] case class Node(key:K, value:V=null, bottomLink:Long, rightLink:Long){}
+protected[iodb] case class Node(key:K, value:V=null, hash:Hash, bottomLink:Long, rightLink:Long){}
 
 /**
   * Authenticated Skip List implemented on top of MapDB Store
@@ -42,22 +57,41 @@ class AuthSkipList(
 
   def close() = store.close()
 
+  def nodeHashFromRecid(recid: Recid):Hash = {
+    if(recid==0) 0
+    else store.get(recid, nodeSerializer).hash
+  }
+
   def put(key:K, value:V): Unit ={
     //TODO for now always insert to lower level
+    val path = mutable.Buffer.empty[(Recid, Node)]
     var node = loadRecidHead()
-    var old = node;
     while(node!=null){
-      old = node;
+      path+=node
       node =  nextRecidNode(key, node._2)
     }
 
+    var old = path.last
     //now `old` is lower or equal to key, insert into linked list
+    //get hash of next node
+    val rightNodeHash = nodeHashFromRecid(old._2.rightLink)
     //insert new node
-    val newNode = Node(key=key, value=value, bottomLink = 0, rightLink = old._2.rightLink)
-    val newRecid = store.put(newNode, nodeSerializer)
+    var hash = nodeHash(key=key, value=value, bottomHash = 0, rightHash = rightNodeHash)
+
+    //insert new node
+    val newNode = Node(key=key, value=value, hash=hash, bottomLink = 0, rightLink = old._2.rightLink)
     //update old node to point into new node
-    val oldNode2 = old._2.copy(rightLink = newRecid)
-    store.update(old._1, oldNode2, nodeSerializer)
+    var newRecid = store.put(newNode, nodeSerializer)
+    //update other nodes along path
+    for(node <- path.reverseIterator){
+      var n = node._2
+      hash = nodeHash(key=n.key, value=n.value,  bottomHash=0, rightHash = hash)
+      n = n.copy(hash=hash,
+        rightLink = if(newRecid!=0)newRecid else n.rightLink)
+
+      store.update(node._1, n, nodeSerializer)
+      newRecid = 0 //update rightLink only on first node
+    }
   }
 
   def get(key:K):V= {
@@ -112,16 +146,14 @@ class AuthSkipList(
     }
     return maxLevel
   }
-
-
 }
-
 
 protected[iodb] class NodeSerializer(val keySize:Int) extends Serializer[Node]{
 
   override def serialize(out: DataOutput2, node: Node): Unit = {
     out.packLong(node.bottomLink)
     out.packLong(node.rightLink)
+    out.writeInt(node.hash)
     out.write(node.key.data)
     if(node.value==null){
       out.packInt(0)
@@ -134,6 +166,7 @@ protected[iodb] class NodeSerializer(val keySize:Int) extends Serializer[Node]{
   override def deserialize(input: DataInput2, available: Int): Node = {
     val bottomLink = input.unpackLong()
     val rightLink = input.unpackLong()
+    val hash = input.readInt()
     val key = new Array[Byte](keySize)
     input.readFully(key)
     //read value if t exists
@@ -146,6 +179,6 @@ protected[iodb] class NodeSerializer(val keySize:Int) extends Serializer[Node]{
 
     return new Node(
       key=new ByteArrayWrapper(key), value=value,
-      bottomLink=bottomLink, rightLink=rightLink)
+      hash=hash, bottomLink=bottomLink, rightLink=rightLink)
   }
 }
