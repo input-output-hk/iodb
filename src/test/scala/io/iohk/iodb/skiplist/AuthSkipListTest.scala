@@ -1,6 +1,7 @@
 package io.iohk.iodb.skiplist
 
-import io.iohk.iodb.TestUtils
+import io.iohk.iodb.skiplist.AuthSkipList._
+import io.iohk.iodb.{ByteArrayWrapper, TestUtils}
 import org.junit.Test
 import org.mapdb._
 import org.scalatest.Assertions
@@ -26,6 +27,25 @@ class AuthSkipListTest extends Assertions{
       if(!set.contains(key))
         assert(null == list.get(key))
     }
-
   }
+
+  @Test def rootHash(): Unit ={
+    //insert stuff into list
+    val data = (0L until 10).map(TestUtils.fromLong(_))
+    val store = DBMaker.memoryDB().make().getStore
+    val list = AuthSkipList.empty(store,8)
+    data.foreach { key =>
+      list.put(key, key)
+    }
+
+    list.printStructure()
+
+    //calculate expected hash
+    val hash = data.foldRight(0){(b:K, rightHash:Hash)=>
+      println(rightHash)
+      nodeHash(key=b, value=b, rightHash=rightHash, bottomHash = 0)
+    }
+    assert(hash==list.loadHead().hash)
+  }
+
 }

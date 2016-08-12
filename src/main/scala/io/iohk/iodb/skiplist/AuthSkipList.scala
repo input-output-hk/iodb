@@ -1,5 +1,7 @@
 package io.iohk.iodb.skiplist
 
+import java.io.PrintStream
+
 import io.iohk.iodb.ByteArrayWrapper
 import org.mapdb._
 
@@ -13,11 +15,7 @@ object AuthSkipList{
   type Hash = Int //TODO change to crypto hash, Array[Byte]
 
   def empty(store:Store, keySize:Int):AuthSkipList = {
-    //insert empty root node
-    val lowestKey = new ByteArrayWrapper(new Array[Byte](keySize))
-    val hash = nodeHash(key=lowestKey, value=null, rightHash = 0, bottomHash = 0) //TODO should this be included??
-    val headNode = new Node(key = lowestKey, value=null, hash = hash, rightLink = 0L, bottomLink = 0L)
-    val headRecid = store.put(headNode, new NodeSerializer(keySize=keySize))
+    val headRecid = store.put(null, new NodeSerializer(keySize=keySize))
     new AuthSkipList(store=store, headRecid = headRecid, keySize=keySize)
   }
 
@@ -51,9 +49,8 @@ class AuthSkipList(
     if(recid==0) null
     else store.get(recid, nodeSerializer)
   }
-  protected def loadHead() = store.get(headRecid, nodeSerializer)
+  protected[iodb] def loadHead() = store.get(headRecid, nodeSerializer)
   protected def loadRecidHead():(Recid, Node) = (headRecid, store.get(headRecid, nodeSerializer))
-
 
   def close() = store.close()
 
@@ -66,6 +63,13 @@ class AuthSkipList(
     //TODO for now always insert to lower level
     val path = mutable.Buffer.empty[(Recid, Node)]
     var node = loadRecidHead()
+    if(node._2==null){
+      //empty root, insert first node
+      val hash = nodeHash(key=key, value=value, bottomHash = 0, rightHash = 0)
+      val newNode = Node(key=key, value=value, hash=hash, bottomLink = 0, rightLink = 0)
+      store.update(headRecid, newNode, nodeSerializer)
+      return
+    }
     while(node!=null){
       path+=node
       node =  nextRecidNode(key, node._2)
@@ -107,24 +111,24 @@ class AuthSkipList(
   }
 
   /** Returns next node for given key.
-    * It follows right link, if right node has lower or equal key.
+    * It follows right link, if right node is greater or equal.
     * It follows bottom link otherwise.
     */
   protected def nextNode(key:K, node:Node): Node = {
     val rightNode = loadNode(node.rightLink)
-    return if(rightNode!=null && key.compareTo(rightNode.key)<=0)
+    return if(rightNode!=null && key.compareTo(rightNode.key)>=0)
         rightNode
       else
         loadNode(node.bottomLink)
   }
 
   /** Returns next node for given key with recid.
-    * It follows right link, if right node has lower or equal key.
+    * It follows right link, if right node is greater or equal.
     * It follows bottom link otherwise.
     */
   protected def nextRecidNode(key:K, node:Node): (Recid,Node) = {
     val rightNode = loadNode(node.rightLink)
-    val ret = if(rightNode!=null && key.compareTo(rightNode.key)<=0)
+    val ret = if(rightNode!=null && key.compareTo(rightNode.key)>=0)
         (node.rightLink, rightNode)
       else
         (node.bottomLink,loadNode(node.bottomLink))
@@ -145,6 +149,17 @@ class AuthSkipList(
       propability = propability*propability
     }
     return maxLevel
+  }
+
+  def printStructure(out:PrintStream = System.out): Unit ={
+    out.println("=== SkipList ===")
+    var recid = headRecid
+    while(recid!=0){
+      val n = loadNode(recid)
+      out.println(s"recid=${recid}, hash=${n.hash}, key=${n.key}")
+      recid = n.rightLink
+    }
+    out.println("")
   }
 }
 
