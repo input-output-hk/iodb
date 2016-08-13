@@ -3,8 +3,6 @@ package io.iohk.iodb
 import org.junit.Test
 import org.scalatest.Assertions
 
-import scala.util.Random
-
 /**
   * Tests huge  store
   */
@@ -21,7 +19,6 @@ class HugeTest extends Assertions with TestWithTempDir {
     val store = new LSMStore(dir = dir)
 
     //fill with updates
-    val r = new Random()
     var version = 1L
     while (storeSize < spaceReq) {
       val d = (0 until 1000000).map(a => (TestUtils.randomA(), TestUtils.randomA()))

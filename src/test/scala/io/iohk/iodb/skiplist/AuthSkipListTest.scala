@@ -31,7 +31,7 @@ class AuthSkipListTest extends Assertions{
 
   @Test def rootHash(): Unit ={
     //insert stuff into list
-    val data = (0L until 10).map(TestUtils.fromLong(_))
+    val data = (0L until 10).map(TestUtils.fromLong)
     val store = DBMaker.memoryDB().make().getStore
     val list = AuthSkipList.empty(store,8)
     data.foreach { key =>
