@@ -2,8 +2,10 @@ package io.iohk.iodb.skiplist
 
 import java.io.PrintStream
 
+import com.google.common.primitives.Bytes
 import io.iohk.iodb.ByteArrayWrapper
 import org.mapdb._
+import scorex.crypto.hash.{Blake2b256, CryptographicHash}
 
 import scala.collection.mutable
 
@@ -12,23 +14,17 @@ object AuthSkipList{
   type K = ByteArrayWrapper
   type V = ByteArrayWrapper
   type Recid = Long
-  type Hash = Int //TODO change to crypto hash, Array[Byte]
+  type Hash = Array[Byte]
 
-  def empty(store:Store, keySize:Int):AuthSkipList = {
-    val headRecid = store.put(null, new NodeSerializer(keySize=keySize))
-    new AuthSkipList(store=store, headRecid = headRecid, keySize=keySize)
+  def defaultHasher = Blake2b256;
+  protected[iodb] val nullArray = new Array[Byte](0);
+
+  def empty(store:Store, keySize:Int, hasher:CryptographicHash = defaultHasher):AuthSkipList = {
+    val headRecid = store.put(null, new NodeSerializer(keySize=keySize, hasher.DigestSize ))
+    new AuthSkipList(store=store, headRecid = headRecid, keySize=keySize, hasher=hasher)
   }
 
 
-  def nodeHash(key:K, value:V, rightHash:Hash, bottomHash:Hash): Hash ={
-    val m = -1640531527
-    var ret = key.hashCode*m
-    if(value!=null)
-      ret+=value.hashCode*m
-    ret+=rightHash*m
-    ret+=bottomHash*m
-    ret
-  }
 }
 import AuthSkipList._
 
@@ -40,10 +36,11 @@ protected[iodb] case class Node(key:K, value:V=null, hash:Hash, bottomLink:Long,
 class AuthSkipList(
                     protected val store:Store,
                     protected val headRecid:Long,
-                    protected val keySize:Int
+                    protected val keySize:Int,
+                    protected val hasher:CryptographicHash = AuthSkipList.defaultHasher
 ) {
 
-  protected val nodeSerializer = new NodeSerializer(keySize)
+  protected val nodeSerializer = new NodeSerializer(keySize, hasher.DigestSize)
 
   protected def loadNode(recid:Long): Node ={
     if(recid==0) null
@@ -52,10 +49,25 @@ class AuthSkipList(
   protected[iodb] def loadHead() = store.get(headRecid, nodeSerializer)
   protected def loadRecidHead():(Recid, Node) = (headRecid, store.get(headRecid, nodeSerializer))
 
+
+
+  /** calculates node hash from key, value and hashes of bottom and right nodes */
+  def nodeHash(key:K, value:V, rightHash:Hash, bottomHash:Hash): Hash ={
+    //concat all byte arrays
+    val concat = Bytes.concat(
+      key.data,
+      if(value==null) nullArray else value.data,
+      if(rightHash==null) nullArray else rightHash,
+      if(bottomHash==null) nullArray else bottomHash
+    )
+    //and hash the result
+    return hasher(concat);
+  }
+
   def close() = store.close()
 
   def nodeHashFromRecid(recid: Recid):Hash = {
-    if(recid==0) 0
+    if(recid==0) null
     else store.get(recid, nodeSerializer).hash
   }
 
@@ -65,7 +77,7 @@ class AuthSkipList(
     var node = loadRecidHead()
     if(node._2==null){
       //empty root, insert first node
-      val hash = nodeHash(key=key, value=value, bottomHash = 0, rightHash = 0)
+      val hash = nodeHash(key=key, value=value, bottomHash = null, rightHash = null)
       val newNode = Node(key=key, value=value, hash=hash, bottomLink = 0, rightLink = 0)
       store.update(headRecid, newNode, nodeSerializer)
       return
@@ -80,7 +92,7 @@ class AuthSkipList(
     //get hash of next node
     val rightNodeHash = nodeHashFromRecid(old._2.rightLink)
     //insert new node
-    var hash = nodeHash(key=key, value=value, bottomHash = 0, rightHash = rightNodeHash)
+    var hash = nodeHash(key=key, value=value, bottomHash = null, rightHash = rightNodeHash)
 
     //insert new node
     val newNode = Node(key=key, value=value, hash=hash, bottomLink = 0, rightLink = old._2.rightLink)
@@ -89,7 +101,7 @@ class AuthSkipList(
     //update other nodes along path
     for(node <- path.reverseIterator){
       var n = node._2
-      hash = nodeHash(key=n.key, value=n.value,  bottomHash=0, rightHash = hash)
+      hash = nodeHash(key=n.key, value=n.value,  bottomHash=null, rightHash = hash)
       n = n.copy(hash=hash,
         rightLink = if(newRecid!=0)newRecid else n.rightLink)
 
@@ -163,12 +175,12 @@ class AuthSkipList(
   }
 }
 
-protected[iodb] class NodeSerializer(val keySize:Int) extends Serializer[Node]{
+protected[iodb] class NodeSerializer(val keySize:Int, val hashSize:Int) extends Serializer[Node]{
 
   override def serialize(out: DataOutput2, node: Node): Unit = {
     out.packLong(node.bottomLink)
     out.packLong(node.rightLink)
-    out.writeInt(node.hash)
+    out.write(node.hash)
     out.write(node.key.data)
     if(node.value==null){
       out.packInt(0)
@@ -181,7 +193,8 @@ protected[iodb] class NodeSerializer(val keySize:Int) extends Serializer[Node]{
   override def deserialize(input: DataInput2, available: Int): Node = {
     val bottomLink = input.unpackLong()
     val rightLink = input.unpackLong()
-    val hash = input.readInt()
+    val hash = new Array[Byte](hashSize)
+    input.readFully(hash)
     val key = new Array[Byte](keySize)
     input.readFully(key)
     //read value if t exists

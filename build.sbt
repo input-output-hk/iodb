@@ -11,6 +11,7 @@ scalaVersion := "2.11.8"
 libraryDependencies ++= Seq(
   "org.mapdb" % "mapdb" % "3.0.1",
   "com.google.guava" % "guava" % "19.0",
+  "org.consensusresearch" % "scorex_2.11" % "1.2.0-RC2",
   "org.scalatest" %% "scalatest" % "2.+" % "test",
   "org.scalactic" %% "scalactic" % "2.+" % "test",
   "org.scalacheck" %% "scalacheck" % "1.12.+" % "test",

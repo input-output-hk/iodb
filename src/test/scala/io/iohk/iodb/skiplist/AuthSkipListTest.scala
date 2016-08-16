@@ -1,5 +1,7 @@
 package io.iohk.iodb.skiplist
 
+import java.util
+
 import io.iohk.iodb.skiplist.AuthSkipList._
 import io.iohk.iodb.{ByteArrayWrapper, TestUtils}
 import org.junit.Test
@@ -38,14 +40,11 @@ class AuthSkipListTest extends Assertions{
       list.put(key, key)
     }
 
-    list.printStructure()
-
     //calculate expected hash
-    val hash = data.foldRight(0){(b:K, rightHash:Hash)=>
-      println(rightHash)
-      nodeHash(key=b, value=b, rightHash=rightHash, bottomHash = 0)
+    val hash = data.foldRight(nullArray){(b:K, rightHash:Hash)=>
+      list.nodeHash(key=b, value=b, rightHash=rightHash, bottomHash = null)
     }
-    assert(hash==list.loadHead().hash)
+    assert(util.Arrays.equals(hash,list.loadHead().hash))
   }
 
 }
