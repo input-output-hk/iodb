@@ -17,7 +17,7 @@ object AuthSkipList{
   type Hash = Array[Byte]
 
   def defaultHasher = Blake2b256;
-  protected[iodb] val nullArray = new Array[Byte](0);
+  protected[skiplist] val nullArray = new Array[Byte](0);
 
   def empty(store:Store, keySize:Int, hasher:CryptographicHash = defaultHasher):AuthSkipList = {
     //insert empty root (long array of recids)
@@ -27,7 +27,7 @@ object AuthSkipList{
 }
 import AuthSkipList._
 
-protected[iodb] case class Node(key:K, value:V=null, hash:Hash, bottomLink:Long, rightLink:Long){}
+protected[skiplist] case class Node(key:K, value:V=null, hash:Hash, bottomLink:Long, rightLink:Long){}
 
 /**
   * Authenticated Skip List implemented on top of MapDB Store
@@ -41,11 +41,11 @@ class AuthSkipList(
 
   protected val nodeSerializer = new NodeSerializer(keySize, hasher.DigestSize)
 
-  protected[iodb] def loadNode(recid:Long): Node ={
+  protected[skiplist] def loadNode(recid:Long): Node ={
     if(recid==0) null
     else store.get(recid, nodeSerializer)
   }
-  protected[iodb] def loadRoot() = store.get(rootRecid, Serializer.LONG_ARRAY)
+  protected[skiplist] def loadRoot() = store.get(rootRecid, Serializer.LONG_ARRAY)
 
 
   /** calculates node hash from key, value and hashes of bottom and right nodes */
@@ -72,13 +72,20 @@ class AuthSkipList(
     //TODO for now always insert to lower level
     val path = mutable.Buffer.empty[(Recid, Node)]
     var root = loadRoot()
-    if(root.isEmpty){
+    if(root.isEmpty) {
       //empty root, insert first node
-      val hash = nodeHash(key=key, value=value, bottomHash = null, rightHash = null)
-      val newNode = Node(key=key, value=value, hash=hash, bottomLink = 0, rightLink = 0)
-      val newRecid = store.put(newNode, nodeSerializer)
-      //and update root
-      store.update(rootRecid, Array(newRecid), Serializer.LONG_ARRAY)
+      val maxLevel = levelFromKey(key) //multiple nodes in tower, upto this level
+      var bottomHash: Hash = null
+      var bottomLink = 0L
+      root = new Array[Long](maxLevel+1)
+      for (level <- 0 to maxLevel) {
+        bottomHash = nodeHash(key = key, value = value, bottomHash = bottomHash, rightHash = null)
+        val newNode = Node(key = key, value = value, hash = bottomHash, bottomLink = bottomLink, rightLink = 0)
+        bottomLink = store.put(newNode, nodeSerializer)
+        //append to root
+        root(level) = bottomLink
+      }
+      store.update(rootRecid, root, Serializer.LONG_ARRAY)
       return
     }
 
@@ -113,6 +120,7 @@ class AuthSkipList(
       newRecid = 0 //update rightLink only on first node
     }
   }
+
 
   def get(key:K):V= {
     var root = loadRoot()
@@ -154,11 +162,13 @@ class AuthSkipList(
     return if(ret._2==null) null else ret
   }
 
+
+
   /** Level for each key is not determined by probability, but from key hash to make Skip List structure deterministic.
     * Probability is simulated by checking if hash is dividable by a number without remainder (N % probability == 0).
     * At each level divisor increases exponentially.
     */
-  protected def levelFromKey(key:K):Int={
+  protected[skiplist] def levelFromKey(key:K):Int={
     var propability = 3
     val maxLevel = 10
     val hash = key.hashCode
@@ -172,17 +182,21 @@ class AuthSkipList(
 
   def printStructure(out:PrintStream = System.out): Unit ={
     out.println("=== SkipList ===")
-    var recid = rootRecid
-    while(recid!=0){
-      val n = loadNode(recid)
-      out.println(s"recid=${recid}, hash=${n.hash}, key=${n.key}")
-      recid = n.rightLink
+    val root = loadRoot()
+    for(level<-root.indices.reverse){
+      out.println("LEVEL "+level)
+      var recid = root(level)
+      while(recid!=0) {
+        val n = loadNode(recid)
+        out.println(s"    recid=${recid}, " + n)
+        recid = n.rightLink
+      }
     }
     out.println("")
   }
 }
 
-protected[iodb] class NodeSerializer(val keySize:Int, val hashSize:Int) extends Serializer[Node]{
+protected[skiplist] class NodeSerializer(val keySize:Int, val hashSize:Int) extends Serializer[Node]{
 
   override def serialize(out: DataOutput2, node: Node): Unit = {
     out.packLong(node.bottomLink)

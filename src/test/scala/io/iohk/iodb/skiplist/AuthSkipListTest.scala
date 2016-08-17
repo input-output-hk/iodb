@@ -49,4 +49,17 @@ class AuthSkipListTest extends Assertions{
     assert(util.Arrays.equals(hash,node.hash))
   }
 
+  @Test def some_keys_are_towers(): Unit ={
+    val store = DBMaker.memoryDB().make().getStore
+    val list = AuthSkipList.empty(store,8)
+
+    val count = 10000L;
+    val levelSum = (0L until count)
+      .map(TestUtils.fromLong(_))
+      .map(list.levelFromKey(_))
+      .sum
+
+    //base level is 0, multiply by 0.2 to make sure there are some multi level keys (towers)
+    assert(levelSum > count*0.2)
+  }
 }
