@@ -20,11 +20,10 @@ object AuthSkipList{
   protected[iodb] val nullArray = new Array[Byte](0);
 
   def empty(store:Store, keySize:Int, hasher:CryptographicHash = defaultHasher):AuthSkipList = {
-    val headRecid = store.put(null, new NodeSerializer(keySize=keySize, hasher.DigestSize ))
-    new AuthSkipList(store=store, headRecid = headRecid, keySize=keySize, hasher=hasher)
+    //insert empty root (long array of recids)
+    val rootRecid = store.put(new Array[Long](0), Serializer.LONG_ARRAY)
+    new AuthSkipList(store=store, rootRecid = rootRecid, keySize=keySize, hasher=hasher)
   }
-
-
 }
 import AuthSkipList._
 
@@ -35,20 +34,18 @@ protected[iodb] case class Node(key:K, value:V=null, hash:Hash, bottomLink:Long,
   */
 class AuthSkipList(
                     protected val store:Store,
-                    protected val headRecid:Long,
+                    protected val rootRecid:Long,
                     protected val keySize:Int,
                     protected val hasher:CryptographicHash = AuthSkipList.defaultHasher
 ) {
 
   protected val nodeSerializer = new NodeSerializer(keySize, hasher.DigestSize)
 
-  protected def loadNode(recid:Long): Node ={
+  protected[iodb] def loadNode(recid:Long): Node ={
     if(recid==0) null
     else store.get(recid, nodeSerializer)
   }
-  protected[iodb] def loadHead() = store.get(headRecid, nodeSerializer)
-  protected def loadRecidHead():(Recid, Node) = (headRecid, store.get(headRecid, nodeSerializer))
-
+  protected[iodb] def loadRoot() = store.get(rootRecid, Serializer.LONG_ARRAY)
 
 
   /** calculates node hash from key, value and hashes of bottom and right nodes */
@@ -74,13 +71,20 @@ class AuthSkipList(
   def put(key:K, value:V): Unit ={
     //TODO for now always insert to lower level
     val path = mutable.Buffer.empty[(Recid, Node)]
-    var node = loadRecidHead()
-    if(node._2==null){
+    var root = loadRoot()
+    if(root.isEmpty){
       //empty root, insert first node
       val hash = nodeHash(key=key, value=value, bottomHash = null, rightHash = null)
       val newNode = Node(key=key, value=value, hash=hash, bottomLink = 0, rightLink = 0)
-      store.update(headRecid, newNode, nodeSerializer)
+      val newRecid = store.put(newNode, nodeSerializer)
+      //and update root
+      store.update(rootRecid, Array(newRecid), Serializer.LONG_ARRAY)
       return
+    }
+
+    //load first node
+    var node = (root(0), loadNode(root(0)))
+    if(node._2==null){
     }
     while(node!=null){
       path+=node
@@ -111,7 +115,10 @@ class AuthSkipList(
   }
 
   def get(key:K):V= {
-    var node = loadHead()
+    var root = loadRoot()
+    if(root.isEmpty)
+      return null
+    var node = loadNode(root(0))
     while(node!=null){
       if(node.value!=null
         && key.compareTo(node.key)==0) //TODO this comparision can be refactored away, we already followed this node in `nextNode()`
@@ -165,7 +172,7 @@ class AuthSkipList(
 
   def printStructure(out:PrintStream = System.out): Unit ={
     out.println("=== SkipList ===")
-    var recid = headRecid
+    var recid = rootRecid
     while(recid!=0){
       val n = loadNode(recid)
       out.println(s"recid=${recid}, hash=${n.hash}, key=${n.key}")

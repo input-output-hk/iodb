@@ -44,7 +44,9 @@ class AuthSkipListTest extends Assertions{
     val hash = data.foldRight(nullArray){(b:K, rightHash:Hash)=>
       list.nodeHash(key=b, value=b, rightHash=rightHash, bottomHash = null)
     }
-    assert(util.Arrays.equals(hash,list.loadHead().hash))
+    val root = list.loadRoot()
+    val node = list.loadNode(root(0))
+    assert(util.Arrays.equals(hash,node.hash))
   }
 
 }
