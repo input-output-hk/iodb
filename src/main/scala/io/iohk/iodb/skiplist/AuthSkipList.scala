@@ -14,155 +14,9 @@ object AuthSkipList{
   type K = ByteArrayWrapper
   type V = ByteArrayWrapper
   type Recid = Long
-  type Hash = Array[Byte]
+  type Hash = ByteArrayWrapper
 
   def defaultHasher = Blake2b256;
-  protected[skiplist] val nullArray = new Array[Byte](0);
-
-  def empty(store:Store, keySize:Int, hasher:CryptographicHash = defaultHasher):AuthSkipList = {
-    //insert empty root (long array of recids)
-    val rootRecid = store.put(new Array[Long](0), Serializer.LONG_ARRAY)
-    new AuthSkipList(store=store, rootRecid = rootRecid, keySize=keySize, hasher=hasher)
-  }
-}
-import AuthSkipList._
-
-protected[skiplist] case class Node(key:K, value:V=null, hash:Hash, bottomLink:Long, rightLink:Long){}
-
-/**
-  * Authenticated Skip List implemented on top of MapDB Store
-  */
-class AuthSkipList(
-                    protected val store:Store,
-                    protected val rootRecid:Long,
-                    protected val keySize:Int,
-                    protected val hasher:CryptographicHash = AuthSkipList.defaultHasher
-) {
-
-  protected val nodeSerializer = new NodeSerializer(keySize, hasher.DigestSize)
-
-  protected[skiplist] def loadNode(recid:Long): Node ={
-    if(recid==0) null
-    else store.get(recid, nodeSerializer)
-  }
-  protected[skiplist] def loadRoot() = store.get(rootRecid, Serializer.LONG_ARRAY)
-
-
-  /** calculates node hash from key, value and hashes of bottom and right nodes */
-  def nodeHash(key:K, value:V, rightHash:Hash, bottomHash:Hash): Hash ={
-    //concat all byte arrays
-    val concat = Bytes.concat(
-      key.data,
-      if(value==null) nullArray else value.data,
-      if(rightHash==null) nullArray else rightHash,
-      if(bottomHash==null) nullArray else bottomHash
-    )
-    //and hash the result
-    return hasher(concat);
-  }
-
-  def close() = store.close()
-
-  def nodeHashFromRecid(recid: Recid):Hash = {
-    if(recid==0) null
-    else store.get(recid, nodeSerializer).hash
-  }
-
-  def put(key:K, value:V): Unit ={
-    //TODO for now always insert to lower level
-    val path = mutable.Buffer.empty[(Recid, Node)]
-    var root = loadRoot()
-    if(root.isEmpty) {
-      //empty root, insert first node
-      val maxLevel = levelFromKey(key) //multiple nodes in tower, upto this level
-      var bottomHash: Hash = null
-      var bottomLink = 0L
-      root = new Array[Long](maxLevel+1)
-      for (level <- 0 to maxLevel) {
-        bottomHash = nodeHash(key = key, value = value, bottomHash = bottomHash, rightHash = null)
-        val newNode = Node(key = key, value = value, hash = bottomHash, bottomLink = bottomLink, rightLink = 0)
-        bottomLink = store.put(newNode, nodeSerializer)
-        //append to root
-        root(level) = bottomLink
-      }
-      store.update(rootRecid, root, Serializer.LONG_ARRAY)
-      return
-    }
-
-    //load first node
-    var node = (root(0), loadNode(root(0)))
-    if(node._2==null){
-    }
-    while(node!=null){
-      path+=node
-      node =  nextRecidNode(key, node._2)
-    }
-
-    var old = path.last
-    //now `old` is lower or equal to key, insert into linked list
-    //get hash of next node
-    val rightNodeHash = nodeHashFromRecid(old._2.rightLink)
-    //insert new node
-    var hash = nodeHash(key=key, value=value, bottomHash = null, rightHash = rightNodeHash)
-
-    //insert new node
-    val newNode = Node(key=key, value=value, hash=hash, bottomLink = 0, rightLink = old._2.rightLink)
-    //update old node to point into new node
-    var newRecid = store.put(newNode, nodeSerializer)
-    //update other nodes along path
-    for(node <- path.reverseIterator){
-      var n = node._2
-      hash = nodeHash(key=n.key, value=n.value,  bottomHash=null, rightHash = hash)
-      n = n.copy(hash=hash,
-        rightLink = if(newRecid!=0)newRecid else n.rightLink)
-
-      store.update(node._1, n, nodeSerializer)
-      newRecid = 0 //update rightLink only on first node
-    }
-  }
-
-
-  def get(key:K):V= {
-    var root = loadRoot()
-    if(root.isEmpty)
-      return null
-    var node = loadNode(root(0))
-    while(node!=null){
-      if(node.value!=null
-        && key.compareTo(node.key)==0) //TODO this comparision can be refactored away, we already followed this node in `nextNode()`
-        return node.value
-      node = nextNode(key, node)
-    }
-    //reached end, not found
-    return null
-  }
-
-  /** Returns next node for given key.
-    * It follows right link, if right node is greater or equal.
-    * It follows bottom link otherwise.
-    */
-  protected def nextNode(key:K, node:Node): Node = {
-    val rightNode = loadNode(node.rightLink)
-    return if(rightNode!=null && key.compareTo(rightNode.key)>=0)
-        rightNode
-      else
-        loadNode(node.bottomLink)
-  }
-
-  /** Returns next node for given key with recid.
-    * It follows right link, if right node is greater or equal.
-    * It follows bottom link otherwise.
-    */
-  protected def nextRecidNode(key:K, node:Node): (Recid,Node) = {
-    val rightNode = loadNode(node.rightLink)
-    val ret = if(rightNode!=null && key.compareTo(rightNode.key)>=0)
-        (node.rightLink, rightNode)
-      else
-        (node.bottomLink,loadNode(node.bottomLink))
-    return if(ret._2==null) null else ret
-  }
-
-
 
   /** Level for each key is not determined by probability, but from key hash to make Skip List structure deterministic.
     * Probability is simulated by checking if hash is dividable by a number without remainder (N % probability == 0).
@@ -180,54 +34,145 @@ class AuthSkipList(
     return maxLevel
   }
 
-  def printStructure(out:PrintStream = System.out): Unit ={
-    out.println("=== SkipList ===")
-    val root = loadRoot()
-    for(level<-root.indices.reverse){
-      out.println("LEVEL "+level)
-      var recid = root(level)
-      while(recid!=0) {
-        val n = loadNode(recid)
-        out.println(s"    recid=${recid}, " + n)
-        recid = n.rightLink
+  def createEmpty(store:Store, keySize:Int, hasher:CryptographicHash = defaultHasher):AuthSkipList = {
+    //insert empty head
+    val ser = new TowerSerializer(keySize=keySize, hashSize = hasher.DigestSize)
+    val headTower = new Tower(
+      key = new ByteArrayWrapper(keySize),
+      value=new ByteArrayWrapper(0),
+      right=Nil,
+      hashes=Nil
+    )
+    val headRecid = store.put(headTower, ser)
+    new AuthSkipList(store=store, headRecid = headRecid, keySize=keySize, hasher=hasher)
+  }
+
+  def createFrom(source:Iterable[(K,V)], store:Store, keySize:Int, hasher:CryptographicHash = defaultHasher): AuthSkipList = {
+    def emptyHash:Hash = new ByteArrayWrapper(hasher.DigestSize)
+    val towerSer = new TowerSerializer(keySize=keySize,  hashSize = hasher.DigestSize)
+    var rightRecids = mutable.ArrayBuffer(0L) // this is used to store links to already saved towers. Size==Max Level
+    var prevKey:K = null; //used for assertion
+    for((key, value)<-source) {
+      //assertions
+      assert(prevKey==null|| prevKey.compareTo(key)>0, "source not sorted in ascending order")
+      prevKey = key
+
+      val level = levelFromKey(key)     //new tower will this number of right links
+
+      //grow to the size of `level`
+      while(level+1>=rightRecids.size){
+        rightRecids+=0L
+      }
+      //cut first `level` element for tower
+      val towerRight = rightRecids.take(level+1).toList
+      assert(towerRight.size==level+1)
+
+      //construct tower
+      val tower = new Tower(key=key, value=value,
+        right = towerRight,
+        hashes = (0 until level+1).map(a=> emptyHash).toList
+      )
+
+      val recid = store.put(tower, towerSer)
+
+      //fill with  links to this tower
+      rightRecids(level) = recid
+      (0 until level).foreach(rightRecids(_)=0)
+
+      assert(rightRecids.size>=level)
+    }
+
+    //construct head
+    val head = new Tower(
+      key=new ByteArrayWrapper(keySize),
+      value=new ByteArrayWrapper(0),
+      right = rightRecids.toList,
+      hashes = rightRecids.map(r=> emptyHash).toList
+    )
+    val headRecid = store.put(head, towerSer)
+    return new AuthSkipList(store=store,  headRecid=headRecid, keySize=keySize,hasher=hasher)
+  }
+
+
+}
+import AuthSkipList._
+
+/**
+  * Authenticated Skip List implemented on top of MapDB Store
+  */
+class AuthSkipList(
+                    protected val store:Store,
+                    protected[skiplist] val headRecid:Long,
+                    protected val keySize:Int,
+                    protected val hasher:CryptographicHash = AuthSkipList.defaultHasher
+) {
+
+  protected[skiplist] val towerSerializer = new TowerSerializer(keySize, hasher.DigestSize)
+
+  protected[skiplist] def loadTower(recid:Long): Tower ={
+    if(recid==0) null
+    else store.get(recid, towerSerializer)
+  }
+  protected[skiplist] def loadHead() = store.get(headRecid, towerSerializer)
+
+
+  def close() = store.close()
+
+  def get(key:K):V = {
+    var node = loadHead()
+    var level = node.right.size-1
+    while(node!=null && level>=0) {
+      //load node, might be null
+      val rightTower = loadTower(node.right(level))
+      //try to progress left
+      val compare = if(rightTower==null) -1  else key.compareTo(rightTower.key)
+        if(compare==0) {
+          //found match, return value from right node
+          return rightTower.value
+        }else if(compare>0){
+          //key on right is smaller, move right
+          node = rightTower
+        }else{
+          //key on right is bigger or non-existent, progress down
+          level-=1
       }
     }
-    out.println("")
-  }
-}
-
-protected[skiplist] class NodeSerializer(val keySize:Int, val hashSize:Int) extends Serializer[Node]{
-
-  override def serialize(out: DataOutput2, node: Node): Unit = {
-    out.packLong(node.bottomLink)
-    out.packLong(node.rightLink)
-    out.write(node.hash)
-    out.write(node.key.data)
-    if(node.value==null){
-      out.packInt(0)
-      return
-    }
-    out.packInt(node.value.data.length)
-    out.write(node.value.data)
+    return null
   }
 
-  override def deserialize(input: DataInput2, available: Int): Node = {
-    val bottomLink = input.unpackLong()
-    val rightLink = input.unpackLong()
-    val hash = new Array[Byte](hashSize)
-    input.readFully(hash)
-    val key = new Array[Byte](keySize)
-    input.readFully(key)
-    //read value if t exists
-    val valueSize = input.unpackInt()
-    val value = if(valueSize==0) null else {
-      val b = new Array[Byte](valueSize)
-      input.readFully(b)
-      new ByteArrayWrapper(b)
+
+  def put(key: K, value:V): Boolean = {
+    ??? //TODO
+  }
+
+  /** traverses skiplist and prints it structure */
+  def printStructure(out:PrintStream = System.out): Unit ={
+    out.println("=== SkipList ===")
+
+    def printRecur(tower:Tower): Unit ={
+      out.println("  "+tower)
+      for(recid<-tower.right.filter(_!=0)) {
+        printRecur(loadTower(recid))
+      }
     }
 
-    return new Node(
-      key=new ByteArrayWrapper(key), value=value,
-      hash=hash, bottomLink=bottomLink, rightLink=rightLink)
+    printRecur(loadHead())
+  }
+
+
+  /** calculates average level for each key */
+  protected[skiplist] def calculateAverageLevel(): Double ={
+    val root = loadHead()
+    var sum = 0L
+    var count = 0L
+
+    def recur(tower:Tower): Unit ={
+      count+=1
+      sum += tower.right.size
+      for(recid<-tower.right.filter(_!=0)) {
+        recur(tower)
+      }
+    }
+    return 1D * sum/count
   }
 }

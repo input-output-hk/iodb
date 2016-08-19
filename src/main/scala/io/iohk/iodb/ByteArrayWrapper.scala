@@ -8,6 +8,11 @@ import java.util
   */
 case class ByteArrayWrapper(data: Array[Byte]) extends Serializable with Comparable[ByteArrayWrapper] {
 
+  /** alternative constructor which takes array size and creates new empty array */
+  def this(size:Int) = this(new Array[Byte](size))
+
+  def size = data.length
+
   require(data != null)
 
   //TODO wrapped data immutable?
