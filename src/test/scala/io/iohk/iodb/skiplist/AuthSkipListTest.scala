@@ -8,6 +8,8 @@ import org.junit.{Ignore, Test}
 import org.mapdb._
 import org.scalatest.Assertions
 
+import scala.util.Random
+
 
 class AuthSkipListTest extends Assertions{
 
@@ -34,13 +36,47 @@ class AuthSkipListTest extends Assertions{
   }
 
   @Test def create_from_iterator(): Unit ={
+    val size = 1000
     val store = DBMaker.memoryDB().make().getStore
-    val source = (1L until 10).map(fromLong).map(k=>(k,k)).reverse
+    val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
     val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
 
-    (1L until 10).map(fromLong).foreach{key=>
+    (1L to size).map(fromLong).foreach{key=>
       assert(key==list.get(key))
     }
+  }
+
+  @Test def findPath(): Unit ={
+    //construct list and check path for all keys is found
+    val size = 1000
+    val store = DBMaker.memoryDB().make().getStore
+    val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
+    val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
+
+    (1L to size).map(fromLong).foreach{key=>
+      val path = list.findPath(key)
+      assert(path.level == 0)
+      assert(key==path.tower.key)
+    }
+  }
+
+
+  @Test @Ignore def remove(): Unit ={
+    //construct list and check path for all keys is found
+    val size = 10
+    val store = DBMaker.memoryDB().make().getStore
+    val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
+    val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
+
+    val r = Random.shuffle(source.toBuffer)
+    while(!r.isEmpty){
+      val (key,value) =  r.remove(0)
+      assert(list.remove(key)==value)
+      for((key2,value2)<-r){
+        assert(value2==list.get(key2))
+      }
+    }
+
   }
 //
 //  @Test def rootHash(): Unit ={
