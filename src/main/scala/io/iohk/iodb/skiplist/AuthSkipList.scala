@@ -154,7 +154,7 @@ class AuthSkipList(
     while(path!=null){
       assert(path.tower.key == key)
       //replace right link on left neighbour
-      var left = path.leftTower
+      var left = loadTower(path.leftRecid) //can not use path.left, since it could be modified during this iteration
       assert{val leftRightLink =left.right(path.level); leftRightLink==0 || leftRightLink == path.recid }
       val leftRightLinks = left.right.updated(path.level, path.tower.right(path.level))
       left = left.copy(right=leftRightLinks)

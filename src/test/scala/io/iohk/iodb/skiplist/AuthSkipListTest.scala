@@ -61,9 +61,9 @@ class AuthSkipListTest extends Assertions{
   }
 
 
-  @Test @Ignore def remove(): Unit ={
+  @Test def remove(): Unit ={
     //construct list and check path for all keys is found
-    val size = 10
+    val size = 100
     val store = DBMaker.memoryDB().make().getStore
     val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
     val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
@@ -72,6 +72,7 @@ class AuthSkipListTest extends Assertions{
     while(!r.isEmpty){
       val (key,value) =  r.remove(0)
       assert(list.remove(key)==value)
+      assert(list.get(key)==null)
       for((key2,value2)<-r){
         assert(value2==list.get(key2))
       }
