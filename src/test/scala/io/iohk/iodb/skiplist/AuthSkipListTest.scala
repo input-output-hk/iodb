@@ -77,7 +77,27 @@ class AuthSkipListTest extends Assertions{
         assert(value2==list.get(key2))
       }
     }
+  }
 
+
+  @Test def findRight(): Unit ={
+    //construct list and check path for all keys is found
+    val size = 100
+    val store = DBMaker.memoryDB().make().getStore
+    val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
+    val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
+
+    var prev:K = null
+    for((key,value)<-source) {
+      val path = list.findPath(key)
+      val right = path.findRight()
+      if (prev == null){
+        assert(right==null)
+      }else{
+        assert(prev==right._2.key)
+      }
+      prev = key
+    }
   }
 //
 //  @Test def rootHash(): Unit ={

@@ -241,6 +241,26 @@ class AuthSkipList(
 
   }
 
+
+  def findRight(path:PathEntry): (Long,Tower) = {
+
+    var entry = path
+    while(entry!=null){
+      //try to find entry, whatever comes first
+      for(level <-entry.level+1 until entry.tower.right.size){
+        val recid = entry.tower.right(level)
+        if(recid!=0) {
+          //fond right node
+          return (recid, loadTower(recid))
+        }
+      }
+      //not found right neighbour for this tower, progress to upper tower
+      entry = entry.prev //TODO entry.prev could be the same, perf optimize
+    }
+    //not found
+    return (0, null)
+  }
+
   /** traverses skiplist and prints it structure */
   def printStructure(out:PrintStream = System.out): Unit ={
     out.println("=== SkipList ===")
