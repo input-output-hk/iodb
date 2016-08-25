@@ -13,10 +13,11 @@ import scala.util.Random
 
 class AuthSkipListTest extends Assertions{
 
-  @Test @Ignore
+  @Test
   def putGet(): Unit ={
+    val count = 10;
     //produce randomly ordered set
-    val set = (0 until 10000).map(i=>randomA(32)).toSet
+    val set = (1 until count).map(i=>randomA(32)).toSet
 
     val store = DBMaker.memoryDB().make().getStore
     val list = AuthSkipList.createEmpty(store,32)
@@ -28,12 +29,13 @@ class AuthSkipListTest extends Assertions{
       assert(key === list.get(key))
     }
     //check non existing
-    for(i<-0 until 1000){
+    for(i<-1 until 1000){
       val key = randomA(32)
       if(!set.contains(key))
         assert(null == list.get(key))
     }
   }
+
 
   @Test def create_from_iterator(): Unit ={
     val size = 1000
@@ -60,6 +62,15 @@ class AuthSkipListTest extends Assertions{
     }
   }
 
+  @Test def put_empty(): Unit ={
+    val size = 100
+    val store = DBMaker.memoryDB().make().getStore
+    val list = AuthSkipList.createEmpty(store=store, keySize = 8)
+    for( key <- (1L until size).map(fromLong)){
+      list.put(key, key)
+      assert(key==list.get(key))
+    }
+  }
 
   @Test def remove(): Unit ={
     //construct list and check path for all keys is found
@@ -92,7 +103,7 @@ class AuthSkipListTest extends Assertions{
       val path = list.findPath(key)
       val right = path.findRight()
       if (prev == null){
-        assert(right==null)
+        assert(right==(0L,null))
       }else{
         assert(prev==right._2.key)
       }

@@ -8,6 +8,7 @@ import org.mapdb._
 import scorex.crypto.hash.{Blake2b256, CryptographicHash}
 
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 
 object AuthSkipList{
@@ -39,9 +40,9 @@ object AuthSkipList{
     val ser = new TowerSerializer(keySize=keySize, hashSize = hasher.DigestSize)
     val headTower = new Tower(
       key = new ByteArrayWrapper(keySize),
-      value=new ByteArrayWrapper(0),
-      right=Nil,
-      hashes=Nil
+      value = new ByteArrayWrapper(0),
+      right = List(0L),
+      hashes = List(new ByteArrayWrapper(hasher.DigestSize))
     )
     val headRecid = store.put(headTower, ser)
     new AuthSkipList(store=store, headRecid = headRecid, keySize=keySize, hasher=hasher)
@@ -101,14 +102,14 @@ import AuthSkipList._
   */
 class AuthSkipList(
                     protected val store:Store,
-                    protected[skiplist] val headRecid:Long,
+                    protected[skiplist] val headRecid:Recid,
                     protected val keySize:Int,
                     protected val hasher:CryptographicHash = AuthSkipList.defaultHasher
 ) {
 
   protected[skiplist] val towerSerializer = new TowerSerializer(keySize, hasher.DigestSize)
 
-  protected[skiplist] def loadTower(recid:Long): Tower ={
+  protected[skiplist] def loadTower(recid:Recid): Tower ={
     if(recid==0) null
     else store.get(recid, towerSerializer)
   }
@@ -140,8 +141,60 @@ class AuthSkipList(
   }
 
 
-  def put(key: K, value:V): Boolean = {
-    ??? //TODO
+  def put(key: K, value:V){
+    //grow head, so it is at least the same height as new tower
+    val level = levelFromKey(key)
+    var head = loadHead()
+    while(head.right.size<=level){
+      head = head.copy(
+        right = head.right :+ 0L,
+        hashes = head.hashes :+ new ByteArrayWrapper(hasher.DigestSize)
+      )
+      store.update(headRecid, head, towerSerializer)
+    }
+
+    val path = findPath(key, leftLinks = true, exact=false)
+    assert(path!=null)
+
+    if(path.tower.key == key){
+      //update single tower with new value
+      val tower = path.tower.copy(value=value)
+      store.update(path.recid, tower, towerSerializer)
+      return
+    }
+
+    //construct new tower
+
+    var rightTowers = path.verticalRightTowers
+    //fill rightTowers with null to level
+    while(rightTowers.size<=level){
+      rightTowers += ((0L, null))
+    }
+    val rightRecids = rightTowers.map(_._1).take(level+1)
+    val hashes = (0 until level+1).map(a=>new ByteArrayWrapper(hasher.DigestSize)).toList
+
+    val tower = new Tower(
+      key = key,
+      value = value,
+      right =  rightRecids.toList,
+      hashes = hashes
+    )
+
+    val insertedTowerRecid = store.put(tower, towerSerializer)
+
+    //zero out right links for this node
+    val leftRecids = path.verticalRecids
+    for(level2 <- 0 until level){
+      val recid = leftRecids(level2)
+      var tower = loadTower(recid)
+      tower = tower.copy(right = tower.right.updated(level2, 0L))
+      store.update(recid, tower, towerSerializer)
+    }
+    //set link to current  node
+    val leftRecid =  leftRecids(level)
+    var leftTower = loadTower(leftRecid)
+    leftTower = leftTower.copy(right = leftTower.right.updated(level, insertedTowerRecid))
+    store.update(leftRecid, leftTower, towerSerializer)
   }
 
   def remove(key:K) : V = {
@@ -242,7 +295,7 @@ class AuthSkipList(
   }
 
 
-  def findRight(path:PathEntry): (Long,Tower) = {
+  def findRight(path:PathEntry): (Recid,Tower) = {
 
     var entry = path
     while(entry!=null){
@@ -278,17 +331,18 @@ class AuthSkipList(
 
   /** calculates average level for each key */
   protected[skiplist] def calculateAverageLevel(): Double ={
-    val root = loadHead()
     var sum = 0L
     var count = 0L
 
     def recur(tower:Tower): Unit ={
       count+=1
-      sum += tower.right.size
+      sum += tower.right.size-1
       for(recid<-tower.right.filter(_!=0)) {
-        recur(tower)
+        recur(loadTower(recid))
       }
     }
+    recur(loadHead())
+
     return 1D * sum/count
   }
 }

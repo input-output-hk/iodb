@@ -9,7 +9,7 @@ import org.mapdb.{DataInput2, DataOutput2, Serializer}
 case class Tower(
                          key:K,
                          value:V,
-                         right:List[Long],
+                         right:List[Recid],
                          hashes:List[Hash]) {
 
   assert(key!=null)
