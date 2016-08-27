@@ -8,8 +8,6 @@ import org.mapdb._
 import scorex.crypto.hash.{Blake2b256, CryptographicHash}
 
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-
 
 object AuthSkipList{
   type K = ByteArrayWrapper
@@ -50,15 +48,64 @@ object AuthSkipList{
 
   def createFrom(source:Iterable[(K,V)], store:Store, keySize:Int, hasher:CryptographicHash = defaultHasher): AuthSkipList = {
     def emptyHash:Hash = new ByteArrayWrapper(hasher.DigestSize)
+
+    def hashKey(key:K): Hash ={
+      return  new ByteArrayWrapper(hasher.hash(key.data))
+    }
+
+    def hashNode(hash1:Hash, hash2:Hash):Hash = {
+      assert(hash1.size==hasher.DigestSize)
+      assert(hash2.size==hasher.DigestSize)
+      val joined = Bytes.concat(hash1.data,hash2.data)
+      return new ByteArrayWrapper(hasher.hash(joined))
+    }
+
+
     val towerSer = new TowerSerializer(keySize=keySize,  hashSize = hasher.DigestSize)
     var rightRecids = mutable.ArrayBuffer(0L) // this is used to store links to already saved towers. Size==Max Level
     var prevKey:K = null; //used for assertion
+
+
+    def makeHashes(level:Int, key:K, towerRight:List[Long]): List[Hash] ={
+      assert(towerRight.size==level+1)
+      assert(level>=0)
+      //calculate hashes
+      val rightHashes = new Array[Hash](level+1)
+
+      rightHashes(0) =
+        if(towerRight(0)==0){
+          //no direct link, key hash
+          if(prevKey==null) null //TODO null or empty hash for right most tower?
+          else hashKey(prevKey)
+        }else{
+          //direct link, chain hash
+          store.get(rightRecids(0), towerSer).hashes.head
+        }
+
+      for(level2 <- 1 to level){
+        val rightRecid = rightRecids(level2)
+        rightHashes(level2) =
+          if(rightRecid==0) null
+          else store.get(rightRecid, towerSer).hashes(level2)
+      }
+
+      val hashes = new Array[Hash](level+1)
+      var bottomHash = hashKey(key)
+      for(level2 <- 0 to level){
+        hashes(level2) =
+          if(towerRight(level2)==0L) bottomHash //right link not present, repeat hash
+          else hashNode(bottomHash, rightHashes(level2)) //combine bottomHash and rightHash
+        bottomHash = hashes(level2)
+      }
+      return hashes.toList
+    }
+
     for((key, value)<-source) {
       //assertions
-      assert(prevKey==null|| prevKey.compareTo(key)>0, "source not sorted in ascending order")
+      assert(prevKey==null || prevKey.compareTo(key)>0, "source not sorted in ascending order")
       prevKey = key
 
-      val level = levelFromKey(key)     //new tower will this number of right links
+      val level = levelFromKey(key)     //new tower will have this number of right links
 
       //grow to the size of `level`
       while(level+1>=rightRecids.size){
@@ -68,10 +115,11 @@ object AuthSkipList{
       val towerRight = rightRecids.take(level+1).toList
       assert(towerRight.size==level+1)
 
+      val hashes = makeHashes(level=level, key=key, towerRight=towerRight)
       //construct tower
       val tower = new Tower(key=key, value=value,
         right = towerRight,
-        hashes = (0 until level+1).map(a=> emptyHash).toList
+        hashes = hashes.toList
       )
 
       val recid = store.put(tower, towerSer)
@@ -82,6 +130,17 @@ object AuthSkipList{
 
       assert(rightRecids.size>=level)
     }
+//
+//    //hash for head
+//    val headHashes = new ArrayBuffer[Hash](rightRecids.size)
+//    var bottomHash = emptyHash
+//    for(level2 <- 1 to rightRecids.size){
+//      headHashes(level2) =
+//        if(towerRight(level2)==0L) bottomHash //right link not present, repeat hash
+//        else hashNode(bottomHash, rightHashes(level2)) //combina bottomHash and rightHash
+//      bottomHash = hashes(level2)
+//    }
+//
 
     //construct head
     val head = new Tower(
@@ -105,7 +164,8 @@ class AuthSkipList(
                     protected[skiplist] val headRecid:Recid,
                     protected val keySize:Int,
                     protected val hasher:CryptographicHash = AuthSkipList.defaultHasher
-) {
+                  ) {
+
 
   protected[skiplist] val towerSerializer = new TowerSerializer(keySize, hasher.DigestSize)
 
@@ -126,15 +186,15 @@ class AuthSkipList(
       val rightTower = loadTower(node.right(level))
       //try to progress left
       val compare = if(rightTower==null) -1  else key.compareTo(rightTower.key)
-        if(compare==0) {
-          //found match, return value from right node
-          return rightTower.value
-        }else if(compare>0){
-          //key on right is smaller, move right
-          node = rightTower
-        }else{
-          //key on right is bigger or non-existent, progress down
-          level-=1
+      if(compare==0) {
+        //found match, return value from right node
+        return rightTower.value
+      }else if(compare>0){
+        //key on right is smaller, move right
+        node = rightTower
+      }else{
+        //key on right is bigger or non-existent, progress down
+        level-=1
       }
     }
     return null
@@ -164,8 +224,13 @@ class AuthSkipList(
     }
 
     //construct new tower
-
-    var rightTowers = path.verticalRightTowers
+    val rightTowers = path.verticalRightTowers
+    //zero out blind links
+    for(level <- 0 until rightTowers.size){
+      val (recid, tower) = rightTowers(level)
+      if(tower!=null && tower.right.size-1!=level)
+        rightTowers(level) = ((0L, null))
+    }
     //fill rightTowers with null to level
     while(rightTowers.size<=level){
       rightTowers += ((0L, null))
@@ -316,18 +381,17 @@ class AuthSkipList(
 
   /** traverses skiplist and prints it structure */
   def printStructure(out:PrintStream = System.out): Unit ={
-    out.println("=== SkipList ===")
-
-    def printRecur(tower:Tower): Unit ={
-      out.println("  "+tower)
+    def printRecur(recid:Recid, prefix:String): Unit ={
+      val tower = loadTower(recid)
+      out.println(prefix+recid + " - " + tower.right.size + " - " + tower.right)
       for(recid<-tower.right.filter(_!=0)) {
-        printRecur(loadTower(recid))
+        printRecur(recid, prefix=prefix+"  ")
       }
     }
 
-    printRecur(loadHead())
+    out.println("=== SkipList ===")
+    printRecur(headRecid, "  ")
   }
-
 
   /** calculates average level for each key */
   protected[skiplist] def calculateAverageLevel(): Double ={
@@ -344,5 +408,32 @@ class AuthSkipList(
     recur(loadHead())
 
     return 1D * sum/count
+  }
+
+  protected[skiplist] def verifyStructure(): Unit ={
+    val recids = mutable.HashSet[Long]()
+
+    def recur(recid:Long, level:Int): Unit ={
+      val notExisted = recids.add(recid)
+      assert(notExisted, "cyclic reference")
+      val tower = loadTower(recid)
+      assert(level == -1 || tower.right.size==level+1, "wrong tower height")
+      for((recid:Recid, level:Int)<-tower.right.zipWithIndex) {
+        if(recid!=0)
+          recur(recid, level)
+      }
+    }
+    recur(headRecid, -1)
+  }
+
+  protected[skiplist] def hashKey(key:K): Hash ={
+    return  new ByteArrayWrapper(hasher.hash(key.data))
+  }
+
+  protected[skiplist] def hashNode(hash1:Hash, hash2:Hash):Hash = {
+    assert(hash1.size==hasher.DigestSize)
+    assert(hash2.size==hasher.DigestSize)
+    val joined = Bytes.concat(hash1.data,hash2.data)
+    return new ByteArrayWrapper(hasher.hash(joined))
   }
 }

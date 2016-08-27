@@ -13,15 +13,20 @@ import scala.util.Random
 
 class AuthSkipListTest extends Assertions{
 
-  @Test
+  @Test(timeout=100000)
   def putGet(): Unit ={
-    val count = 10;
+    val count = 1000
     //produce randomly ordered set
     val set = (1 until count).map(i=>randomA(32)).toSet
 
     val store = DBMaker.memoryDB().make().getStore
     val list = AuthSkipList.createEmpty(store,32)
-    set.foreach(key=> list.put(key, key))
+      set.foreach{key=>
+      list.put(key, key)
+      list.verifyStructure()
+    }
+
+    list.verifyStructure()
 
     assert(0.2<list.calculateAverageLevel())
     //check existing
@@ -42,6 +47,7 @@ class AuthSkipListTest extends Assertions{
     val store = DBMaker.memoryDB().make().getStore
     val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
     val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
+    list.verifyStructure()
 
     (1L to size).map(fromLong).foreach{key=>
       assert(key==list.get(key))
@@ -54,6 +60,7 @@ class AuthSkipListTest extends Assertions{
     val store = DBMaker.memoryDB().make().getStore
     val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
     val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
+    list.verifyStructure()
 
     (1L to size).map(fromLong).foreach{key=>
       val path = list.findPath(key)
@@ -69,7 +76,10 @@ class AuthSkipListTest extends Assertions{
     for( key <- (1L until size).map(fromLong)){
       list.put(key, key)
       assert(key==list.get(key))
+      list.verifyStructure()
     }
+    list.verifyStructure()
+
   }
 
   @Test def remove(): Unit ={
@@ -78,6 +88,7 @@ class AuthSkipListTest extends Assertions{
     val store = DBMaker.memoryDB().make().getStore
     val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
     val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
+    list.verifyStructure()
 
     val r = Random.shuffle(source.toBuffer)
     while(!r.isEmpty){
@@ -87,6 +98,7 @@ class AuthSkipListTest extends Assertions{
       for((key2,value2)<-r){
         assert(value2==list.get(key2))
       }
+      list.verifyStructure()
     }
   }
 
@@ -97,6 +109,7 @@ class AuthSkipListTest extends Assertions{
     val store = DBMaker.memoryDB().make().getStore
     val source = (1L to size).map(fromLong).map(k=>(k,k)).reverse
     val list = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
+    list.verifyStructure()
 
     var prev:K = null
     for((key,value)<-source) {
