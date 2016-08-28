@@ -130,24 +130,15 @@ object AuthSkipList{
 
       assert(rightRecids.size>=level)
     }
-//
-//    //hash for head
-//    val headHashes = new ArrayBuffer[Hash](rightRecids.size)
-//    var bottomHash = emptyHash
-//    for(level2 <- 1 to rightRecids.size){
-//      headHashes(level2) =
-//        if(towerRight(level2)==0L) bottomHash //right link not present, repeat hash
-//        else hashNode(bottomHash, rightHashes(level2)) //combina bottomHash and rightHash
-//      bottomHash = hashes(level2)
-//    }
-//
+
+    val hashes = makeHashes(key = new ByteArrayWrapper(keySize), level = rightRecids.length-1, towerRight = rightRecids.toList )
 
     //construct head
     val head = new Tower(
       key=new ByteArrayWrapper(keySize),
       value=new ByteArrayWrapper(0),
       right = rightRecids.toList,
-      hashes = rightRecids.map(r=> emptyHash).toList
+      hashes = hashes
     )
     val headRecid = store.put(head, towerSer)
     return new AuthSkipList(store=store,  headRecid=headRecid, keySize=keySize,hasher=hasher)

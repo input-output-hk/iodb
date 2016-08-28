@@ -21,7 +21,7 @@ class AuthSkipListTest extends Assertions{
 
     val store = DBMaker.memoryDB().make().getStore
     val list = AuthSkipList.createEmpty(store,32)
-      set.foreach{key=>
+    set.foreach{key=>
       list.put(key, key)
       list.verifyStructure()
     }
