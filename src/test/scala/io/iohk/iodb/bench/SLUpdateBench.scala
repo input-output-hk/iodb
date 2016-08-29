@@ -11,7 +11,7 @@ import org.mapdb.DBMaker
   */
 object SLUpdateBench {
 
-  val defaultLimit = 1e8.toLong
+  val defaultLimit = 1e7.toLong
 
   def main(args: Array[String]): Unit = {
     val limit = if(args.isEmpty) defaultLimit else args(0).toInt
@@ -21,30 +21,13 @@ object SLUpdateBench {
     val store = DBMaker.fileDB(file).fileMmapEnable().make().getStore
     file.deleteOnExit()
     val start = System.currentTimeMillis();
-    var tick = start;
-    def printProgress(i:Long): Unit = {
-      val items = limit-i
-      val p = 100L * items / limit
-      val s = (System.currentTimeMillis()-start)/1000
-      val size = file.length()/1024
-      print("\r"+p+"% - " + f" $items%,d items - $s%,d seconds - $size%,d KB")
-    }
-    val source = for(
-      i <- (limit to 0 by -1);
-      key = TestUtils.fromLong(i);
-      xx = {//print progress
-        if(tick+5000<System.currentTimeMillis()){
-          printProgress(i)
-          tick = System.currentTimeMillis()
-        }
-      }
-      ) yield (key, key)
-
+    val source = (limit to 0 by -1).map(a=>(TestUtils.fromLong(a), TestUtils.fromLong(a)))
     val sl = AuthSkipList.createFrom(source=source, store=store, keySize = 8)
     println()
     println("===============Finished===============")
-    println()
-    printProgress(0)
+    val s = (System.currentTimeMillis()-start)/1000
+    val size = file.length()/1024
+    print(f" $limit%,d items - $s%,d seconds - $size%,d KB")
     store.close()
   }
 }
