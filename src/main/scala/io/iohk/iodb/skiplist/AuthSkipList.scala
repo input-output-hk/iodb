@@ -151,10 +151,10 @@ import AuthSkipList._
   * Authenticated Skip List implemented on top of MapDB Store
   */
 class AuthSkipList(
-                    protected val store:Store,
+                    protected[skiplist] val store:Store,
                     protected[skiplist] val headRecid:Recid,
-                    protected val keySize:Int,
-                    protected val hasher:CryptographicHash = AuthSkipList.defaultHasher
+                    protected[skiplist] val keySize:Int,
+                    protected[skiplist] val hasher:CryptographicHash = AuthSkipList.defaultHasher
                   ) {
 
 
