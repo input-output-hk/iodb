@@ -30,7 +30,7 @@ object SLUpdateBench {
       print("\r"+p+"% - " + f" $items%,d items - $s%,d seconds - $size%,d KB")
     }
     val source = for(
-      i <- (0L to limit).reverse;
+      i <- (limit to 0 by -1);
       key = TestUtils.fromLong(i);
       xx = {//print progress
         if(tick+5000<System.currentTimeMillis()){
