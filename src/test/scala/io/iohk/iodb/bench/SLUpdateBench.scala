@@ -25,7 +25,7 @@ object SLUpdateBench {
     def printProgress(i:Long): Unit = {
       val items = limit-i
       val p = 100L * items / limit
-      val s = (System.currentTimeMillis()-tick)/1000
+      val s = (System.currentTimeMillis()-start)/1000
       val size = file.length()/1024
       print("\r"+p+"% - " + f" $items%,d items - $s%,d seconds - $size%,d KB")
     }
