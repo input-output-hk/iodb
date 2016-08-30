@@ -17,7 +17,7 @@ object SimpleKVBench extends Benchmark{
 
   def main(args: Array[String]) {
     var dir = TestUtils.tempDir()
-    val lb = bench(new LSMStore(dir, keySize = keySize, keepSingleVersion = true), dir)
+    val lb = bench(new LSMStore(dir, keySize = KeySize, keepSingleVersion = true), dir)
     printlnResult(lb)
 
     dir = TestUtils.tempDir()
@@ -46,7 +46,7 @@ object SimpleKVBench extends Benchmark{
       val r = new Random(1)
       for (i <- 0 until updates) {
         val toGet = (0 until keyCount).map { i =>
-          val key = new Array[Byte](keySize)
+          val key = new Array[Byte](KeySize)
           r.nextBytes(key)
           ByteArrayWrapper(key)
         }

@@ -8,13 +8,13 @@ import scala.util.{Random, Try}
 trait Benchmark {
   type Key = Array[Byte]
 
-  val keySize = 32
-  val valueSize = 256
+  val KeySize = 32
+  val ValueSize = 256
 
   def randomKV(): (ByteArrayWrapper, ByteArrayWrapper) = {
-    val key = new Array[Byte](keySize)
+    val key = new Array[Byte](KeySize)
     Random.nextBytes(key)
-    val value = new Array[Byte](valueSize)
+    val value = new Array[Byte](ValueSize)
     Random.nextBytes(value)
     ByteArrayWrapper(key) -> ByteArrayWrapper(value)
   }

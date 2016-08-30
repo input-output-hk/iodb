@@ -27,7 +27,7 @@ object InitialProcessing extends Benchmark {
 
   def main(args: Array[String]): Unit = {
     var dir = TestUtils.tempDir()
-    bench(new LSMStore(dir, keySize = keySize, keepSingleVersion = true), dir)
+    bench(new LSMStore(dir, keySize = KeySize, keepSingleVersion = true), dir)
 
     dir = TestUtils.tempDir()
     bench(new RocksStore(dir), dir)
