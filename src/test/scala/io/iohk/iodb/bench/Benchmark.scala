@@ -11,6 +11,12 @@ trait Benchmark {
   val KeySize = 32
   val ValueSize = 256
 
+  def randomBytes(howMany: Int): Array[Byte] = {
+    val res = new Array[Byte](howMany)
+    Random.nextBytes(res)
+    res
+  }
+
   def randomKV(): (ByteArrayWrapper, ByteArrayWrapper) = {
     val key = new Array[Byte](KeySize)
     Random.nextBytes(key)
