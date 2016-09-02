@@ -3,8 +3,7 @@ package io.iohk.iodb.bench
 import java.io.File
 
 import io.iohk.iodb.{ByteArrayWrapper, TestUtils}
-import io.iohk.iodb.skiplist.AuthSkipList
-import io.iohk.iodb.skiplist.AuthSkipList._
+import io.iohk.iodb.skiplist._
 import org.mapdb.DBMaker
 
 

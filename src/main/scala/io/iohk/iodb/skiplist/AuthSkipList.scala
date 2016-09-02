@@ -10,12 +10,6 @@ import scorex.crypto.hash.{Blake2b256, CryptographicHash}
 import scala.collection.mutable
 
 object AuthSkipList {
-  type K = ByteArrayWrapper
-  type V = ByteArrayWrapper
-  type Recid = Long
-  type Hash = ByteArrayWrapper
-
-  def defaultHasher = Blake2b256
 
   /** Level for each key is not determined by probability, but from key hash to make Skip List structure deterministic.
     * Probability is simulated by checking if hash is dividable by a number without remainder (N % probability == 0).
@@ -155,7 +149,7 @@ class AuthSkipList(
                     protected[skiplist] val store: Store,
                     protected[skiplist] val headRecid: Recid,
                     protected[skiplist] val keySize: Int,
-                    protected[skiplist] val hasher: CryptographicHash = AuthSkipList.defaultHasher
+                    protected[skiplist] val hasher: CryptographicHash = defaultHasher
                   ) {
 
 

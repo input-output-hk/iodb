@@ -3,6 +3,8 @@ package io.iohk.iodb
 import java.io.Serializable
 import java.util
 
+import scorex.crypto.encode.Base58
+
 /**
   * Wraps byte array and provides hashCode, equals and compare methods.
   */
@@ -25,5 +27,5 @@ case class ByteArrayWrapper(data: Array[Byte]) extends Serializable with Compara
 
   def compareTo(o: ByteArrayWrapper): Int = Utils.BYTE_ARRAY_COMPARATOR.compare(this.data, o.data)
 
-  override def toString: String = getClass.getSimpleName+util.Arrays.toString(data)
+  override def toString: String = getClass.getSimpleName+"["+Base58.encode(data)+"]"
 }
