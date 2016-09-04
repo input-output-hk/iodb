@@ -1,10 +1,8 @@
 package io.iohk.iodb.skiplist
 
 import scala.annotation.tailrec
-import scala.collection.mutable.ArrayBuffer
-import AuthSkipList._
-
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 case class PathEntry(
                       prev: PathEntry,

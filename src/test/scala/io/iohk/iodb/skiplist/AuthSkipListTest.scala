@@ -1,6 +1,5 @@
 package io.iohk.iodb.skiplist
 
-import io.iohk.iodb.skiplist.AuthSkipList._
 import io.iohk.iodb.TestUtils._
 import org.junit.Test
 import org.mapdb._
@@ -119,6 +118,19 @@ class AuthSkipListTest extends Assertions {
       }
       prev = key
     }
+  }
+
+  @Test def empty_key_on_head(): Unit = {
+    val store = DBMaker.memoryDB().make().getStore
+    val source = (1L to 100).map(fromLong).map(k => (k, k)).reverse
+    val list = AuthSkipList.createFrom(source = source, store = store, keySize = 8)
+    assert(list.loadHead().key == null)
+  }
+
+  @Test def empty_key_on_head2(): Unit = {
+    val store = DBMaker.memoryDB().make().getStore
+    val list = AuthSkipList.createEmpty(store = store, keySize = 11)
+    assert(list.loadHead().key == null)
   }
 
   //
