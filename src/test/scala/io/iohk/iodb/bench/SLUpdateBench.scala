@@ -21,9 +21,9 @@ object SLUpdateBench extends Benchmark {
     file.deleteOnExit()
 
 
-    val source = (limit to 0 by -1).iterator.map{a =>
-      val appendix = randomBytes(KeySize - 8)
-      ByteArrayWrapper(TestUtils.fromLong(a).data ++ appendix) -> TestUtils.fromLong(a)
+    val source = (limit to 0 by -1).iterator.map { a =>
+      val keyAppendix = randomBytes(KeySize - 8)
+      ByteArrayWrapper(TestUtils.fromLong(a).data ++ keyAppendix) -> ByteArrayWrapper(randomBytes(ValueSize))
     }
     object iterable extends Iterable[(K, V)] {
       override def iterator: Iterator[(K, V)] = source
@@ -46,7 +46,7 @@ object SLUpdateBench extends Benchmark {
       val (t, _) = TestUtils.runningTime {
         (1 to UpdateSize).foreach { _ =>
           val (k, v) = randomKV()
-          sl.put(k,v)
+          sl.put(k, v)
         }
       }
       println(f"${limit + i * UpdateSize}%,d items - ${t / 1000}%,d seconds - ${size()}%,f GB")
