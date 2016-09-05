@@ -13,6 +13,12 @@ package object skiplist {
   def defaultHasher = Blake2b256
 
 
+  /** represents positive infinity for calculating chained hash */
+  protected[skiplist] def positiveInfinity: K = new ByteArrayWrapper(Array[Byte](1, 2, 3))
+
+  /** represents negative infity for calculating negative hash */
+  protected[skiplist] def negativeInfinity: K = new ByteArrayWrapper(Array[Byte](4, 5, 6))
+
   protected[skiplist] def hashEntry(key: K, value: V)(implicit hasher: CryptographicHash): Hash = {
     ByteArrayWrapper(hasher.hash(Bytes.concat(key.data, value.data)))
   }

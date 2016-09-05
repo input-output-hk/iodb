@@ -7,16 +7,14 @@ import scala.collection.mutable.ArrayBuffer
 case class PathEntry(
                       prev: PathEntry,
                       recid: Recid,
-                      tower: Tower,
                       comeFromLeft: Boolean,
                       level: Int,
-                      rightTower: Tower,
-                      leftRecid: Recid,
-                      leftTower: Tower) {
+                      rightRecid: Recid,
+                      leftRecid: Recid) {
 
-  @tailrec final def findRight(): (Recid, Tower) = {
-    if (rightTower != null) {
-      return (tower.right(level), rightTower)
+  @tailrec final def findRight(): Recid = {
+    if (rightRecid != 0L) {
+      return rightRecid
     }
 
     var r = this
@@ -25,7 +23,8 @@ case class PathEntry(
       r = v
       v = v.prev
     }
-    if (v == null) (0L, null) else v.findRight()
+    if (v == null) 0L
+    else v.findRight()
   }
 
   def verticalRecids: List[Recid] = {
@@ -43,8 +42,8 @@ case class PathEntry(
     ret.toList
   }
 
-  def verticalRightTowers: mutable.Buffer[(Recid, Tower)] = {
-    val ret = ArrayBuffer[(Recid, Tower)]()
+  def verticalRightTowers: mutable.Buffer[Recid] = {
+    val ret = ArrayBuffer[Recid]()
     var entry = this
     var fromLeft = false
     while (entry != null) {

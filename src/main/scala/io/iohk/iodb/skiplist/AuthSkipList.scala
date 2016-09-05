@@ -11,12 +11,6 @@ import scala.collection.mutable
 object AuthSkipList {
 
 
-  /** represents positive infinity for calculating chained hash */
-  protected[skiplist] def positiveInfinity: K = new ByteArrayWrapper(Array[Byte](1, 2, 3))
-
-  /** represents negative infity for calculating negative hash */
-  protected[skiplist] def negativeInfinity: K = new ByteArrayWrapper(Array[Byte](4, 5, 6))
-
 
   def createEmpty(store: Store, keySize: Int, hasher: CryptographicHash = defaultHasher): AuthSkipList = {
     implicit val hasher2 = hasher
@@ -78,7 +72,7 @@ object AuthSkipList {
 
       val level = levelFromKey(key) //new tower will have this number of right links
       //grow to the size of `level`
-      while (level + 1 >= rightRecids.size) {
+      while (level >= rightRecids.size) {
         rightRecids += 0L
       }
       //cut first `level` element for tower
@@ -128,7 +122,7 @@ class AuthSkipList(
                     protected[skiplist] val store: Store,
                     protected[skiplist] val headRecid: Recid,
                     protected[skiplist] val keySize: Int,
-                    protected[skiplist] val hasher: CryptographicHash = defaultHasher
+                    implicit protected[skiplist] val hasher: CryptographicHash = defaultHasher
                   ) {
 
 
@@ -141,6 +135,18 @@ class AuthSkipList(
 
   protected[skiplist] def loadHead() = store.get(headRecid, towerSerializer)
 
+
+  protected[skiplist] def loadHeadEnsureLevel(level: Int) = {
+    var head = loadHead()
+    while (head.right.size <= level) {
+      head = head.copy(
+        right = head.right :+ 0L,
+        hashes = head.hashes :+ new ByteArrayWrapper(hasher.DigestSize)
+      )
+      store.update(headRecid, head, towerSerializer)
+    }
+    head
+  }
 
   def close() = store.close()
 
@@ -170,22 +176,18 @@ class AuthSkipList(
   def put(key: K, value: V) {
     //grow head, so it is at least the same height as new tower
     val level = levelFromKey(key)
-    var head = loadHead()
-    while (head.right.size <= level) {
-      head = head.copy(
-        right = head.right :+ 0L,
-        hashes = head.hashes :+ new ByteArrayWrapper(hasher.DigestSize)
-      )
-      store.update(headRecid, head, towerSerializer)
-    }
+    loadHeadEnsureLevel(level)
 
     val path = findPath(key, leftLinks = true, exact = false)
     assert(path != null)
 
-    if (path.tower.key == key) {
+    val baseTower = loadTower(path.recid)
+    if (baseTower.key == key) {
       //update single tower with new value
-      val tower = path.tower.copy(value = value)
-      store.update(path.recid, tower, towerSerializer)
+      val newTower = baseTower.copy(value = value)
+      store.update(path.recid, newTower, towerSerializer)
+      rehash(key)
+      rehash(lowerKey(key))
       return
     }
 
@@ -193,15 +195,16 @@ class AuthSkipList(
     val rightTowers = path.verticalRightTowers
     //zero out blind links
     for (level <- 0 until rightTowers.size) {
-      val (recid, tower) = rightTowers(level)
+      val recid = rightTowers(level)
+      val tower = loadTower(recid)
       if (tower != null && tower.right.size - 1 != level)
-        rightTowers(level) = (0L, null) //todo: check
+        rightTowers(level) = 0L //todo: check
     }
     //fill rightTowers with null to level
     while (rightTowers.size <= level) {
-      rightTowers += ((0L, null))
+      rightTowers += 0L
     }
-    val rightRecids = rightTowers.map(_._1).take(level + 1)
+    val rightRecids = rightTowers.take(level + 1)
     val hashes = (0 until level + 1).map(a => new ByteArrayWrapper(hasher.DigestSize)).toList
 
     val tower = Tower(
@@ -226,31 +229,119 @@ class AuthSkipList(
     var leftTower = loadTower(leftRecid)
     leftTower = leftTower.copy(right = leftTower.right.updated(level, insertedTowerRecid))
     store.update(leftRecid, leftTower, towerSerializer)
+    rehash(key)
+    rehash(lowerKey(key))
+  }
+
+  def lowerKey(key: K): K = {
+    var node = loadHead()
+    var level = node.right.size - 1
+    while (node != null && level >= 0) {
+      //load node, might be null
+      val rightTower = loadTower(node.right(level))
+      //try to progress left
+      val compare = if (rightTower == null) -1 else key.compareTo(rightTower.key)
+      if (compare > 0) {
+        //key on right is smaller, move right
+        node = rightTower
+      } else {
+        //key on right is bigger or non-existent, progress down
+        level -= 1
+      }
+    }
+    return node.key
+  }
+
+  protected[skiplist] def rehash(key: K) {
+    var path = findPath(key, leftLinks = false, exact = key != null)
+    assert(key == null || get(key) != null) //if key is null it is negativeInfinity, rehash the head
+
+    //iterate over path, update hash on each node
+    while (path != null) {
+      var tower: Tower = loadTower(path.recid)
+      val rightLink = tower.right(path.level)
+      val rightHash =
+        if (path.level == 0 && rightLink == 0) {
+          //ground level, with no right link, use right key
+          val rightTower = loadTower(path.findRight())
+          if (rightTower == null) {
+            //left most, use positive infinity as a key for hash
+            hashEntry(positiveInfinity, new V(0))
+          } else {
+            hashEntry(rightTower.key, rightTower.value)
+          }
+        } else if (rightLink == 0) {
+          //no right nodes, reuse bottom hash
+          null
+        } else {
+          //take hash from right node
+          val rightTower = loadTower(path.rightRecid)
+          assert(path.level + 1 == rightTower.hashes.size)
+          rightTower.hashes.last
+        }
+
+      val bottomHash =
+        if (path.level == 0) {
+          if (tower.key == null) {
+            hashEntry(negativeInfinity, new V(0))
+          } else {
+            hashEntry(tower.key, tower.value)
+          }
+        } else {
+          tower.hashes(path.level - 1)
+        }
+
+      //update node
+      val newHash =
+      if (rightHash == null) bottomHash
+      else hashNode(bottomHash, rightHash)
+
+      tower = tower.copy(hashes = tower.hashes.updated(path.level, newHash))
+      store.update(path.recid, tower, towerSerializer)
+
+      //move to previous entry on path
+      path = path.prev
+    }
   }
 
   def remove(key: K): V = {
-    var path = findPath(key, leftLinks = true)
+    var path = findPath(key, leftLinks = true, exact = true)
     if (path == null)
       return null
 
-    val towerRecid = path.recid
-    val ret = path.tower.value
+    var origpath = path;
+    val baseRecid = path.recid
+    val tower = loadTower(path.recid)
+    assert(tower.key == key)
+    val ret = tower.value
     while (path != null) {
-      assert(path.tower.key == key)
+      assert(tower.key == key)
       //replace right link on left neighbour
-      var left = loadTower(path.leftRecid) //can not use path.left, since it could be modified during this iteration
+      var left = loadTower(path.leftRecid)
       assert {
         val leftRightLink = left.right(path.level)
         leftRightLink == 0 || leftRightLink == path.recid
       }
-      val leftRightLinks = left.right.updated(path.level, path.tower.right(path.level))
+      val leftRightLinks = left.right.updated(path.level, tower.right(path.level))
       left = left.copy(right = leftRightLinks)
       store.update(path.leftRecid, left, towerSerializer)
 
       //move to upper node in path
       path = if (path.comeFromLeft) null else path.prev
     }
-    store.delete(towerRecid, towerSerializer)
+    store.delete(baseRecid, towerSerializer)
+
+    //collapse head, until it has zero right links on top
+    while (loadHead().right.size > 1 && loadHead().right.last == 0L) {
+      var head = loadHead()
+      head = head.copy(
+        hashes = head.hashes.dropRight(1),
+        right = head.right.dropRight(1)
+      )
+      store.update(headRecid, head, towerSerializer)
+    }
+
+    rehash(lowerKey(key))
     ret
   }
 
@@ -267,18 +358,16 @@ class AuthSkipList(
       val rightRecid = node.right(level)
       val rightTower = loadTower(rightRecid)
 
-      var left: Tower = null
       var leftRecid = 0L
 
-      if (leftLinks && entry != null && entry.prev != null) {
+      if (leftLinks && entry != null) {
         if (comeFromLeft) {
           //node on left is previous path entry
           leftRecid = entry.recid
-          left = entry.tower
         } else {
           //get previous path entry left node
           leftRecid = entry.leftRecid
-          left = entry.leftTower
+          var left = loadTower(leftRecid)
           //and follow links non this level, until we reach this entry
           while (left != null && left.right(level) != 0) {
             //follow right link until we reach an end
@@ -291,11 +380,9 @@ class AuthSkipList(
       entry = PathEntry(
         prev = entry,
         recid = recid,
-        tower = node,
         comeFromLeft = comeFromLeft,
         level = level,
-        rightTower = rightTower,
-        leftTower = left,
+        rightRecid = rightRecid,
         leftRecid = leftRecid
       )
 
@@ -306,8 +393,10 @@ class AuthSkipList(
         level -= 1
       } else {
 
-        //try to progress left
-        val compare = if (rightTower == null) -1 else key.compareTo(rightTower.key)
+        //try to progress right
+        val compare =
+        if (rightTower == null || key == null) -1
+        else key.compareTo(rightTower.key)
         if (compare >= 0) {
           //key on right is smaller or equal, move right
           node = rightTower
@@ -333,8 +422,9 @@ class AuthSkipList(
     var entry = path
     while (entry != null) {
       //try to find entry, whatever comes first
-      for (level <- entry.level + 1 until entry.tower.right.size) {
-        val recid = entry.tower.right(level)
+      val tower = loadTower(entry.recid)
+      for (level <- entry.level + 1 until tower.right.size) {
+        val recid = tower.right(level)
         if (recid != 0) {
           //fond right node
           return (recid, loadTower(recid))
@@ -393,4 +483,62 @@ class AuthSkipList(
     }
     recur(headRecid, -1)
   }
+
+  /**
+    * Calculates rootHash by traversing recursively entire tree,
+    */
+  protected[skiplist] def verifyHash(): Unit = {
+
+    /** recursive function used to calculate hash */
+    def hash(tower: Tower, parentRightLink: Recid, level: Int): Hash = {
+      val rightLink = tower.right(level)
+
+      val bottomHash: Hash =
+        if (level == 0) {
+          //bottom level, hash key
+          if (tower.key == null) hashEntry(negativeInfinity, new V(0))
+          else hashEntry(tower.key, tower.value)
+        } else {
+          //not bottom, progress in recursion
+          hash(
+            tower,
+            parentRightLink =
+              if (rightLink != 0L) rightLink
+              else parentRightLink,
+            level = level - 1
+          )
+        }
+      val rightHash: Hash =
+        if (rightLink == 0L) {
+          //no right link,
+          if (level > 0) {
+            null // no ground link, reuse bottom hash
+          } else {
+            //at ground level, use right key hash
+            if (parentRightLink == 0L) {
+              //no right keys, so use positive infinity
+              hashEntry(positiveInfinity, new V(0))
+            } else {
+              //load next tower to get key and value
+              val rightTower = loadTower(parentRightLink)
+
+              hashEntry(rightTower.key, rightTower.value)
+            }
+          }
+        } else {
+          //right link is set, so use recursion to calculate its hash
+          hash(tower = loadTower(rightLink), parentRightLink = parentRightLink, level = level)
+        }
+
+      val ret =
+        if (rightHash == null) bottomHash
+        else hashNode(bottomHash, rightHash)
+      //assert(ret==tower.hashes(level))
+      return ret
+    }
+
+    val rootHash = hash(tower = loadHead(), parentRightLink = 0L, level = loadHead().hashes.size - 1)
+    assert(rootHash == loadHead().hashes.last)
+  }
+
 }

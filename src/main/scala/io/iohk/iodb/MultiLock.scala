@@ -9,7 +9,7 @@ import java.util.concurrent.locks.LockSupport
 protected[iodb] class MultiLock[E] {
 
   /** currently locked entres, key is entry, value is Thread ID which locked  */
-  protected val locks = new ConcurrentHashMap[E, Long]()
+  protected val locks = new ConcurrentHashMap[E, Any]()
 
 
   /** locks given entry, block until locked */

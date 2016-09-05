@@ -61,7 +61,7 @@ class AuthSkipListTest extends Assertions {
     (1L to size).map(fromLong).foreach { key =>
       val path = list.findPath(key)
       assert(path.level == 0)
-      assert(key == path.tower.key)
+      assert(key == list.loadTower(path.recid).key)
     }
   }
 
@@ -112,9 +112,9 @@ class AuthSkipListTest extends Assertions {
       val path = list.findPath(key)
       val right = path.findRight()
       if (prev == null) {
-        assert(right == (0L, null))
+        assert(right == 0L)
       } else {
-        assert(prev == right._2.key)
+        assert(prev == list.loadTower(right).key)
       }
       prev = key
     }
