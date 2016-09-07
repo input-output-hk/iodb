@@ -4,7 +4,7 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-case class PathEntry(
+protected[skiplist] case class PathEntry(
                       prev: PathEntry,
                       recid: Recid,
                       comeFromLeft: Boolean,

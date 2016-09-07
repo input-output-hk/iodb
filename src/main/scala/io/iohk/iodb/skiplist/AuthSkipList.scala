@@ -7,6 +7,7 @@ import org.mapdb._
 import scorex.crypto.hash.CryptographicHash
 
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 object AuthSkipList {
 
@@ -120,7 +121,7 @@ object AuthSkipList {
   */
 class AuthSkipList(
                     protected[skiplist] val store: Store,
-                    protected[skiplist] val headRecid: Recid,
+                    val headRecid: Recid,
                     protected[skiplist] val keySize: Int,
                     implicit protected[skiplist] val hasher: CryptographicHash = defaultHasher
                   ) {
@@ -148,6 +149,9 @@ class AuthSkipList(
     head
   }
 
+
+  def rootHash() = loadHead().hashes.last
+
   def close() = store.close()
 
   def get(key: K): V = {
@@ -165,11 +169,76 @@ class AuthSkipList(
         //key on right is smaller, move right
         node = rightTower
       } else {
+
+
         //key on right is bigger or non-existent, progress down
         level -= 1
       }
     }
     null
+  }
+
+  def getPath(key: V): SkipListPath = {
+    var path = findPath(key, exact = true, leftLinks = false)
+    if (path == null)
+      return null
+
+    val value = loadTower(path.recid).value
+    val p = new ArrayBuffer[SkipListPathEntry]()
+
+    var isRightHash = true
+
+    //iterate over path, update hash on each node
+    while (path != null) {
+      var tower: Tower = loadTower(path.recid)
+      val rightLink = tower.right(path.level)
+      val rightHash =
+        if (path.level == 0 && rightLink == 0) {
+          //ground level, with no right link, use right key
+          val rightTower = loadTower(path.findRight())
+          if (rightTower == null) {
+            //left most, use positive infinity as a key for hash
+            hashEntry(positiveInfinity, new V(0))
+          } else {
+            hashEntry(rightTower.key, rightTower.value)
+          }
+        } else if (rightLink == 0) {
+          //no right nodes, reuse bottom hash
+          null
+        } else {
+          //take hash from right node
+          val rightTower = loadTower(path.rightRecid)
+          assert(path.level + 1 == rightTower.hashes.size)
+          rightTower.hashes.last
+        }
+
+      val bottomHash =
+        if (path.level == 0) {
+          if (tower.key == null) {
+            hashEntry(negativeInfinity, new V(0))
+          } else {
+            hashEntry(tower.key, tower.value)
+          }
+        } else {
+          tower.hashes(path.level - 1)
+        }
+
+      p += new SkipListPathEntry(
+        sideHash = if (isRightHash) rightHash else bottomHash,
+        isRightHash = isRightHash
+      )
+      isRightHash = !path.comeFromLeft
+
+      //move to previous entry on path
+      path = path.prev
+    }
+
+
+    return new SkipListPath(
+      key = key,
+      value = value,
+      hashPath = p.toList,
+      hasher = hasher)
   }
 
 
