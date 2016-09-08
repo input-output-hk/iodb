@@ -12,7 +12,6 @@ import scala.collection.mutable.ArrayBuffer
 object AuthSkipList {
 
 
-
   def createEmpty(store: Store, keySize: Int, hasher: CryptographicHash = defaultHasher): AuthSkipList = {
     implicit val hasher2 = hasher
     //insert empty head
@@ -130,7 +129,7 @@ class AuthSkipList(
   protected[skiplist] val towerSerializer = new TowerSerializer(keySize, hasher.DigestSize)
 
   protected[skiplist] def loadTower(recid: Recid): Tower = {
-    if (recid == 0) null
+    if (recid == 0L) null
     else store.get(recid, towerSerializer)
   }
 
@@ -193,7 +192,7 @@ class AuthSkipList(
       var tower: Tower = loadTower(path.recid)
       val rightLink = tower.right(path.level)
       val rightHash =
-        if (path.level == 0 && rightLink == 0) {
+        if (path.level == 0 && rightLink == 0L) {
           //ground level, with no right link, use right key
           val rightTower = loadTower(path.findRight())
           if (rightTower == null) {
@@ -202,7 +201,7 @@ class AuthSkipList(
           } else {
             hashEntry(rightTower.key, rightTower.value)
           }
-        } else if (rightLink == 0) {
+        } else if (rightLink == 0L) {
           //no right nodes, reuse bottom hash
           null
         } else {
@@ -234,7 +233,7 @@ class AuthSkipList(
     }
 
 
-    return new SkipListPath(
+    new SkipListPath(
       key = key,
       value = value,
       hashPath = p.toList,
@@ -263,7 +262,7 @@ class AuthSkipList(
     //construct new tower
     val rightTowers = path.verticalRightTowers
     //zero out blind links
-    for (level <- 0 until rightTowers.size) {
+    for (level <- rightTowers.indices) {
       val recid = rightTowers(level)
       val tower = loadTower(recid)
       if (tower != null && tower.right.size - 1 != level)
@@ -318,7 +317,7 @@ class AuthSkipList(
         level -= 1
       }
     }
-    return node.key
+    node.key
   }
 
   protected[skiplist] def rehash(key: K) {
@@ -330,7 +329,7 @@ class AuthSkipList(
       var tower: Tower = loadTower(path.recid)
       val rightLink = tower.right(path.level)
       val rightHash =
-        if (path.level == 0 && rightLink == 0) {
+        if (path.level == 0 && rightLink == 0L) {
           //ground level, with no right link, use right key
           val rightTower = loadTower(path.findRight())
           if (rightTower == null) {
@@ -339,7 +338,7 @@ class AuthSkipList(
           } else {
             hashEntry(rightTower.key, rightTower.value)
           }
-        } else if (rightLink == 0) {
+        } else if (rightLink == 0L) {
           //no right nodes, reuse bottom hash
           null
         } else {
@@ -362,8 +361,8 @@ class AuthSkipList(
 
       //update node
       val newHash =
-      if (rightHash == null) bottomHash
-      else hashNode(bottomHash, rightHash)
+        if (rightHash == null) bottomHash
+        else hashNode(bottomHash, rightHash)
 
       tower = tower.copy(hashes = tower.hashes.updated(path.level, newHash))
       store.update(path.recid, tower, towerSerializer)
@@ -378,7 +377,7 @@ class AuthSkipList(
     if (path == null)
       return null
 
-    var origpath = path;
+    var origpath = path
     val baseRecid = path.recid
     val tower = loadTower(path.recid)
     assert(tower.key == key)
@@ -389,7 +388,7 @@ class AuthSkipList(
       var left = loadTower(path.leftRecid)
       assert {
         val leftRightLink = left.right(path.level)
-        leftRightLink == 0 || leftRightLink == path.recid
+        leftRightLink == 0L || leftRightLink == path.recid
       }
       val leftRightLinks = left.right.updated(path.level, tower.right(path.level))
       left = left.copy(right = leftRightLinks)
@@ -438,7 +437,7 @@ class AuthSkipList(
           leftRecid = entry.leftRecid
           var left = loadTower(leftRecid)
           //and follow links non this level, until we reach this entry
-          while (left != null && left.right(level) != 0) {
+          while (left != null && left.right(level) != 0L) {
             //follow right link until we reach an end
             leftRecid = left.right(level)
             left = loadTower(leftRecid)
@@ -464,8 +463,8 @@ class AuthSkipList(
 
         //try to progress right
         val compare =
-        if (rightTower == null || key == null) -1
-        else key.compareTo(rightTower.key)
+          if (rightTower == null || key == null) -1
+          else key.compareTo(rightTower.key)
         if (compare >= 0) {
           //key on right is smaller or equal, move right
           node = rightTower
@@ -494,7 +493,7 @@ class AuthSkipList(
       val tower = loadTower(entry.recid)
       for (level <- entry.level + 1 until tower.right.size) {
         val recid = tower.right(level)
-        if (recid != 0) {
+        if (recid != 0L) {
           //fond right node
           return (recid, loadTower(recid))
         }
@@ -546,7 +545,7 @@ class AuthSkipList(
       val tower = loadTower(recid)
       assert(level == -1 || tower.right.size == level + 1, "wrong tower height")
       for ((recid: Recid, level: Int) <- tower.right.zipWithIndex) {
-        if (recid != 0)
+        if (recid != 0L)
           recur(recid, level)
       }
     }
@@ -599,11 +598,8 @@ class AuthSkipList(
           hash(tower = loadTower(rightLink), parentRightLink = parentRightLink, level = level)
         }
 
-      val ret =
-        if (rightHash == null) bottomHash
-        else hashNode(bottomHash, rightHash)
-      //assert(ret==tower.hashes(level))
-      return ret
+      if (rightHash == null) bottomHash
+      else hashNode(bottomHash, rightHash)
     }
 
     val rootHash = hash(tower = loadHead(), parentRightLink = 0L, level = loadHead().hashes.size - 1)
