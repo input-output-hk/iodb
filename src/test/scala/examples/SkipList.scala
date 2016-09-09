@@ -3,15 +3,41 @@ package examples
 import java.io.File
 
 import io.iohk.iodb.ByteArrayWrapper
-import io.iohk.iodb.skiplist.AuthSkipList
+import io.iohk.iodb.skiplist._
 import org.junit.Test
 import org.mapdb._
+import scorex.crypto.encode.Base58
+
+import scala.util.Random
 
 
 /**
   * Demonstrates Authenticated Skip List
   */
 class SkipList {
+
+
+  def genEl(howMany: Int = 1, seed: Option[Int] = None): Seq[(K, V)] = {
+    val r = new Random
+    seed.foreach(s => r.setSeed(s))
+    (1 to howMany) map (i => (new ByteArrayWrapper(r.nextString(32).getBytes), new ByteArrayWrapper(r.nextString(32).getBytes)))
+  }
+
+  /**
+    * Check that skiplist have the same roothash, as in scrypto
+    */
+  @Test def deterministic(): Unit = {
+    val store = DBMaker
+      .heapDB() //store type
+      .make().getStore() //construct DB and get its store
+    val skiplist = AuthSkipList.createEmpty(store = store, keySize = 32)
+
+    //insert key and value into SL
+    val el = genEl(1, Some(0)).head
+    skiplist.put(el._1, el._2)
+
+    assert("5WNucddst4by47WwhHDfPX8sxhqUJigmGWgbaeteuLfP" == Base58.encode(skiplist.rootHash().data))
+  }
 
 
   /**
