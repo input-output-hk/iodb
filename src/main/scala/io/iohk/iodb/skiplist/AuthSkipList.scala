@@ -123,7 +123,7 @@ class AuthSkipList(
                     val headRecid: Recid,
                     protected[skiplist] val keySize: Int,
                     implicit protected[skiplist] val hasher: CryptographicHash = defaultHasher
-                  ) {
+                  ) extends Iterable[(K, V)] {
 
 
   protected[skiplist] val towerSerializer = new TowerSerializer(keySize, hasher.DigestSize)
@@ -604,6 +604,23 @@ class AuthSkipList(
 
     val rootHash = hash(tower = loadHead(), parentRightLink = 0L, level = loadHead().hashes.size - 1)
     assert(rootHash == loadHead().hashes.last)
+
+
   }
 
+  override def iterator: Iterator[(K, V)] = {
+    //load all entries to list
+    val ret = new mutable.ArrayBuffer[(K, V)]
+
+    def recur(recid: Recid): Unit = {
+      val tower = loadTower(recid)
+      if (tower.key != null)
+        ret += ((tower.key, tower.value))
+      for (recid <- tower.right.filter(_ != 0)) {
+        recur(recid)
+      }
+    }
+    recur(headRecid)
+    return ret.iterator
+  }
 }

@@ -133,6 +133,14 @@ class AuthSkipListTest extends Assertions {
     assert(list.loadHead().key == null)
   }
 
+  @Test def iterator(): Unit = {
+    val store = DBMaker.memoryDB().make().getStore
+    val source = (1L to 100).map(fromLong).map(k => (k, k)).reverse
+    val list = AuthSkipList.createFrom(source = source, store = store, keySize = 8)
+
+    assert(source.reverse.toBuffer == list.iterator.toBuffer)
+  }
+
   //
   //  @Test def rootHash(): Unit ={
   //    //insert stuff into list
