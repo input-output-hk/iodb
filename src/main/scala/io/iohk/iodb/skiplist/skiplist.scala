@@ -1,6 +1,6 @@
 package io.iohk.iodb
 
-import com.google.common.primitives.Bytes
+import com.google.common.primitives.{Bytes, Ints}
 import scorex.crypto.hash.{Blake2b256, CryptographicHash}
 
 package object skiplist {
@@ -11,16 +11,17 @@ package object skiplist {
   type Hash = ByteArrayWrapper
 
   def defaultHasher = Blake2b256
+
   val MaxKeySize = 512
 
   /** represents positive infinity for calculating chained hash */
-  protected[skiplist] def positiveInfinity: K = new ByteArrayWrapper(Array.fill(MaxKeySize)(-1: Byte))
+  protected[skiplist] def positiveInfinity: (K, V) = (new K(Array.fill(MaxKeySize)(-1: Byte)), new V(Array(127: Byte)))
 
   /** represents negative infity for calculating negative hash */
-  protected[skiplist] def negativeInfinity: K = new ByteArrayWrapper(Array(-128: Byte))
+  protected[skiplist] def negativeInfinity: (K, V) = (new K(Array.fill(1)(0: Byte)), new V(Array(-128: Byte)))
 
   protected[skiplist] def hashEntry(key: K, value: V)(implicit hasher: CryptographicHash): Hash = {
-    ByteArrayWrapper(hasher.hash(Bytes.concat(key.data, value.data)))
+    ByteArrayWrapper(hasher.hash(Ints.toByteArray(key.data.length) ++ Ints.toByteArray(value.data.length) ++ key.data ++ value.data))
   }
 
 

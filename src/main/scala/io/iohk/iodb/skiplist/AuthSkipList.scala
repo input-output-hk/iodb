@@ -4,6 +4,7 @@ import java.io.PrintStream
 
 import io.iohk.iodb.ByteArrayWrapper
 import org.mapdb._
+import scorex.crypto.encode.Base58
 import scorex.crypto.hash.CryptographicHash
 
 import scala.collection.mutable
@@ -16,7 +17,8 @@ object AuthSkipList {
     implicit val hasher2 = hasher
     //insert empty head
     val ser = new TowerSerializer(keySize = keySize, hashSize = hasher.DigestSize)
-    val hash = hashNode(hashEntry(negativeInfinity, new V(0)), hashEntry(positiveInfinity, new V(0)))
+    val hash = hashNode(hashEntry(negativeInfinity._1, negativeInfinity._2),
+      hashEntry(positiveInfinity._1, positiveInfinity._2))
     val headTower = Tower(
       key = null,
       value = null,
@@ -31,7 +33,7 @@ object AuthSkipList {
     implicit val hasher2 = hasher
 
     val towerSer = new TowerSerializer(keySize = keySize, hashSize = hasher.DigestSize)
-    var prevKey: K = positiveInfinity
+    var prevKey: K = positiveInfinity._1
     var prevValue = new V(0)
     def makeHashes(level: Int, key: K, value: V, towerRight: List[Long]): List[Hash] = {
       assert(towerRight.size == level + 1)
@@ -99,7 +101,8 @@ object AuthSkipList {
       prevValue = value
     }
 
-    val hashes = makeHashes(key = negativeInfinity, value = new V(0), level = rightRecids.length - 1, towerRight = rightRecids.toList)
+    val hashes = makeHashes(key = negativeInfinity._1, value = negativeInfinity._2,
+      level = rightRecids.length - 1, towerRight = rightRecids.toList)
 
     //construct head
     val head = Tower(
@@ -197,7 +200,7 @@ class AuthSkipList(
           val rightTower = loadTower(path.findRight())
           if (rightTower == null) {
             //left most, use positive infinity as a key for hash
-            hashEntry(positiveInfinity, new V(0))
+            hashEntry(positiveInfinity._1, positiveInfinity._2)
           } else {
             hashEntry(rightTower.key, rightTower.value)
           }
@@ -214,7 +217,7 @@ class AuthSkipList(
       val bottomHash =
         if (path.level == 0) {
           if (tower.key == null) {
-            hashEntry(negativeInfinity, new V(0))
+            hashEntry(negativeInfinity._1, negativeInfinity._2)
           } else {
             hashEntry(tower.key, tower.value)
           }
@@ -334,7 +337,7 @@ class AuthSkipList(
           val rightTower = loadTower(path.findRight())
           if (rightTower == null) {
             //left most, use positive infinity as a key for hash
-            hashEntry(positiveInfinity, new V(0))
+            hashEntry(positiveInfinity._1, positiveInfinity._2)
           } else {
             hashEntry(rightTower.key, rightTower.value)
           }
@@ -351,7 +354,7 @@ class AuthSkipList(
       val bottomHash =
         if (path.level == 0) {
           if (tower.key == null) {
-            hashEntry(negativeInfinity, new V(0))
+            hashEntry(negativeInfinity._1, negativeInfinity._2)
           } else {
             hashEntry(tower.key, tower.value)
           }
@@ -564,7 +567,7 @@ class AuthSkipList(
       val bottomHash: Hash =
         if (level == 0) {
           //bottom level, hash key
-          if (tower.key == null) hashEntry(negativeInfinity, new V(0))
+          if (tower.key == null) hashEntry(negativeInfinity._1, negativeInfinity._2)
           else hashEntry(tower.key, tower.value)
         } else {
           //not bottom, progress in recursion
@@ -585,7 +588,7 @@ class AuthSkipList(
             //at ground level, use right key hash
             if (parentRightLink == 0L) {
               //no right keys, so use positive infinity
-              hashEntry(positiveInfinity, new V(0))
+              hashEntry(positiveInfinity._1, positiveInfinity._2)
             } else {
               //load next tower to get key and value
               val rightTower = loadTower(parentRightLink)

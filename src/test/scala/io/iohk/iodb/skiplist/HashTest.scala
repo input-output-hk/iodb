@@ -29,12 +29,12 @@ class HashTest extends Assertions {
 
   @Test def emptyHash(): Unit = {
     val list = AuthSkipList.createEmpty(store, keySize = 8)
-    val expected = hashNode(hashEntry(negativeInfinity, new V(0)), hashEntry(positiveInfinity, new V(0)))
+    val expected = hashNode(hashEntry(negativeInfinity._1, negativeInfinity._2), hashEntry(positiveInfinity._1, positiveInfinity._2))
     assert(list.loadHead().hashes == List(expected))
   }
 
   @Test def emptyHash2(): Unit = {
-    val expected = hashNode(hashEntry(negativeInfinity, new V(0)), hashEntry(positiveInfinity, new V(0)))
+    val expected = hashNode(hashEntry(negativeInfinity._1, negativeInfinity._2), hashEntry(positiveInfinity._1, positiveInfinity._2))
     verifyHash(List(expected))
   }
 
@@ -44,10 +44,10 @@ class HashTest extends Assertions {
     val key = fromLong(2L)
     val expected =
       hashNode(
-        hashEntry(negativeInfinity, new V(0)),
+        hashEntry(negativeInfinity._1, negativeInfinity._2),
         hashNode(
           hashEntry(key, key),
-          hashEntry(positiveInfinity, new V(0))))
+          hashEntry(negativeInfinity._1, negativeInfinity._2)))
     verifyHash(List(expected), key)
   }
 
@@ -61,12 +61,12 @@ class HashTest extends Assertions {
 
     val expected =
       hashNode(
-        hashEntry(negativeInfinity, new V(0)),
+        hashEntry(negativeInfinity._1, negativeInfinity._2),
         hashNode(
           hashEntry(key, key),
           hashNode(
             hashEntry(key2, key2),
-            hashEntry(positiveInfinity, new V(0)))))
+            hashEntry(positiveInfinity._1, positiveInfinity._2))))
     verifyHash(List(expected), key, key2)
   }
 
@@ -79,7 +79,7 @@ class HashTest extends Assertions {
     val list = AuthSkipList.createFrom(source = List((key, key)), store = store, keySize = 8)
     assert(2 == list.loadHead().right.size)
     val headBottom = hashNode(
-      hashEntry(negativeInfinity, new V(0)),
+      hashEntry(negativeInfinity._1, negativeInfinity._2),
       hashEntry(key, key)
     )
 
@@ -88,7 +88,7 @@ class HashTest extends Assertions {
         headBottom,
         hashNode(
           hashEntry(key, key),
-          hashEntry(positiveInfinity, new V(0))))
+          hashEntry(positiveInfinity._1, positiveInfinity._2)))
     verifyHash(List(headBottom, expected), key)
   }
 

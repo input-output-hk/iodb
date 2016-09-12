@@ -2,11 +2,13 @@ package examples
 
 import java.io.File
 
+import com.google.common.primitives.{Bytes, Ints}
 import io.iohk.iodb.ByteArrayWrapper
 import io.iohk.iodb.skiplist._
 import org.junit.Test
 import org.mapdb._
 import scorex.crypto.encode.Base58
+import scorex.crypto.hash.{CryptographicHash, Blake2b256}
 
 import scala.util.Random
 
@@ -36,7 +38,27 @@ class SkipList {
     val el = genEl(1, Some(0)).head
     skiplist.put(el._1, el._2)
 
-    assert("5WNucddst4by47WwhHDfPX8sxhqUJigmGWgbaeteuLfP" == Base58.encode(skiplist.rootHash().data))
+    /** represents positive infinity for calculating chained hash */
+    def positiveInfinity: (K, V) = (new K(Array.fill(MaxKeySize)(-1: Byte)), new V(Array(127: Byte)))
+
+    /** represents negative infity for calculating negative hash */
+    def negativeInfinity: (K, V) = (new K(Array.fill(1)(0: Byte)), new V(Array(-128: Byte)))
+
+    def hashEntry(key: K, value: V)(implicit hasher: CryptographicHash): Hash = {
+      ByteArrayWrapper(hasher.hash( Ints.toByteArray(key.data.length) ++ Ints.toByteArray(value.data.length) ++ key.data ++ value.data))
+    }
+
+    println(Base58.encode(hashEntry(negativeInfinity._1, negativeInfinity._2)(Blake2b256).data))
+    println(Base58.encode(hashEntry(el._1, el._2)(Blake2b256).data))
+    println(Base58.encode(hashEntry(positiveInfinity._1, positiveInfinity._2)(Blake2b256).data))
+
+//    1: CCcvqrkJ65Vp,             , 111111111111
+//    0: CCcvqrkJ65Vp, Ea1bgrywRRyo, 111111111111
+//    e: 4GNEHWgaBsSK, CX2QFDjX7eGC, EyRuUoUH7EoU
+
+    skiplist.printStructure()
+    assert("CCcvqrkJ65VprcRtrzQKZG37BsiswfxyCwQRw4t2sbki" == Base58.encode(skiplist.rootHash().data),
+      s"${Base58.encode(skiplist.rootHash().data)} vs CCcvqrkJ65VprcRtrzQKZG37BsiswfxyCwQRw4t2sbki")
   }
 
 
