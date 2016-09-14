@@ -4,6 +4,7 @@ import io.iohk.iodb.TestUtils._
 import org.junit.Test
 import org.mapdb.DBMaker
 import org.scalatest.Assertions
+import scorex.crypto.hash.{CommutativeHash, CryptographicHash}
 
 import scala.util.Random
 
@@ -11,7 +12,7 @@ class HashTest extends Assertions {
 
   val store = DBMaker.memoryDB().make().getStore
 
-  implicit val hasher = defaultHasher
+  implicit val comHash = new CommutativeHash[CryptographicHash](defaultHasher)
 
   def verifyHash(expected: List[Hash], keys: K*): Unit = {
     val list = AuthSkipList.createFrom(
@@ -34,7 +35,10 @@ class HashTest extends Assertions {
   }
 
   @Test def emptyHash2(): Unit = {
-    val expected = hashNode(hashEntry(negativeInfinity._1, negativeInfinity._2), hashEntry(positiveInfinity._1, positiveInfinity._2))
+    val expected = hashNode(
+      hashEntry(negativeInfinity._1, negativeInfinity._2),
+      hashEntry(positiveInfinity._1, positiveInfinity._2)
+    )
     verifyHash(List(expected))
   }
 
@@ -47,7 +51,7 @@ class HashTest extends Assertions {
         hashEntry(negativeInfinity._1, negativeInfinity._2),
         hashNode(
           hashEntry(key, key),
-          hashEntry(negativeInfinity._1, negativeInfinity._2)))
+          hashEntry(positiveInfinity._1, positiveInfinity._2)))
     verifyHash(List(expected), key)
   }
 

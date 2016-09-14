@@ -1,6 +1,6 @@
 package io.iohk.iodb.skiplist
 
-import scorex.crypto.hash.CryptographicHash
+import scorex.crypto.hash.{CommutativeHash, CryptographicHash}
 
 
 case class SkipListPathEntry(sideHash: Hash, isRightHash: Boolean)
@@ -10,7 +10,7 @@ case class SkipListPathEntry(sideHash: Hash, isRightHash: Boolean)
   */
 case class SkipListPath(key: K, value: V, hashPath: List[SkipListPathEntry], hasher: CryptographicHash) {
 
-  private implicit val hasher2 = hasher;
+  private implicit val hasher2 = new CommutativeHash(hasher)
 
 
   def rootHash(): Hash = {

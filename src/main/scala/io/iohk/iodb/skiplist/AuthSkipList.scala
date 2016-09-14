@@ -4,8 +4,7 @@ import java.io.PrintStream
 
 import io.iohk.iodb.ByteArrayWrapper
 import org.mapdb._
-import scorex.crypto.encode.Base58
-import scorex.crypto.hash.CryptographicHash
+import scorex.crypto.hash.{CommutativeHash, CryptographicHash}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -14,7 +13,8 @@ object AuthSkipList {
 
 
   def createEmpty(store: Store, keySize: Int, hasher: CryptographicHash = defaultHasher): AuthSkipList = {
-    implicit val hasher2 = hasher
+
+    implicit val comHasher = new CommutativeHash(hasher)
     //insert empty head
     val ser = new TowerSerializer(keySize = keySize, hashSize = hasher.DigestSize)
     val hash = hashNode(hashEntry(negativeInfinity._1, negativeInfinity._2),
@@ -30,11 +30,11 @@ object AuthSkipList {
   }
 
   def createFrom(source: Iterable[(K, V)], store: Store, keySize: Int, hasher: CryptographicHash = defaultHasher): AuthSkipList = {
-    implicit val hasher2 = hasher
+    implicit val comHasher = new CommutativeHash(hasher)
 
     val towerSer = new TowerSerializer(keySize = keySize, hashSize = hasher.DigestSize)
     var prevKey: K = positiveInfinity._1
-    var prevValue = new V(0)
+    var prevValue = positiveInfinity._2
     def makeHashes(level: Int, key: K, value: V, towerRight: List[Long]): List[Hash] = {
       assert(towerRight.size == level + 1)
       assert(level >= 0)
@@ -125,9 +125,10 @@ class AuthSkipList(
                     protected[skiplist] val store: Store,
                     val headRecid: Recid,
                     protected[skiplist] val keySize: Int,
-                    implicit protected[skiplist] val hasher: CryptographicHash = defaultHasher
+                    protected[skiplist] val hasher: CryptographicHash = defaultHasher
                   ) extends Iterable[(K, V)] {
 
+  implicit protected[skiplist] val comHasher = new CommutativeHash(hasher)
 
   protected[skiplist] val towerSerializer = new TowerSerializer(keySize, hasher.DigestSize)
 
@@ -607,8 +608,6 @@ class AuthSkipList(
 
     val rootHash = hash(tower = loadHead(), parentRightLink = 0L, level = loadHead().hashes.size - 1)
     assert(rootHash == loadHead().hashes.last)
-
-
   }
 
   override def iterator: Iterator[(K, V)] = {

@@ -1,7 +1,7 @@
 package io.iohk.iodb
 
-import com.google.common.primitives.{Bytes, Ints}
-import scorex.crypto.hash.{Blake2b256, CryptographicHash}
+import com.google.common.primitives.Ints
+import scorex.crypto.hash.{Blake2b256, CommutativeHash, CryptographicHash}
 
 package object skiplist {
 
@@ -10,26 +10,25 @@ package object skiplist {
   type Recid = Long
   type Hash = ByteArrayWrapper
 
-  def defaultHasher = Blake2b256
+  def defaultHasher: CryptographicHash = Blake2b256
 
   val MaxKeySize = 512
 
   /** represents positive infinity for calculating chained hash */
-  protected[skiplist] def positiveInfinity: (K, V) = (new K(Array.fill(MaxKeySize)(-1: Byte)), new V(Array(127: Byte)))
+  protected[skiplist] val positiveInfinity: (K, V) = (new K(Array.fill(MaxKeySize)(-1: Byte)), new V(Array(127: Byte)))
 
   /** represents negative infity for calculating negative hash */
-  protected[skiplist] def negativeInfinity: (K, V) = (new K(Array.fill(1)(0: Byte)), new V(Array(-128: Byte)))
+  protected[skiplist] val negativeInfinity: (K, V) = (new K(Array.fill(1)(0: Byte)), new V(Array(-128: Byte)))
 
-  protected[skiplist] def hashEntry(key: K, value: V)(implicit hasher: CryptographicHash): Hash = {
+  protected[skiplist] def hashEntry(key: K, value: V)(implicit hasher: CommutativeHash[CryptographicHash]): V = {
     ByteArrayWrapper(hasher.hash(Ints.toByteArray(key.data.length) ++ Ints.toByteArray(value.data.length) ++ key.data ++ value.data))
   }
 
 
-  protected[skiplist] def hashNode(hash1: Hash, hash2: Hash)(implicit hasher: CryptographicHash): Hash = {
+  protected[skiplist] def hashNode(hash1: Hash, hash2: Hash)(implicit hasher: CommutativeHash[CryptographicHash]): Hash = {
     assert(hash1.size == hasher.DigestSize)
     assert(hash2.size == hasher.DigestSize)
-    val joined = Bytes.concat(hash1.data, hash2.data)
-    ByteArrayWrapper(hasher.hash(joined))
+    ByteArrayWrapper(hasher.hash(hash1.data, hash2.data))
   }
 
 
