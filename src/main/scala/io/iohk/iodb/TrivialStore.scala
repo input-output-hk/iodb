@@ -22,7 +22,6 @@ class TrivialStore(
 
   protected var data = new util.HashMap[K, V]()
 
-
   /**
     * Set of active files sorted in descending order (newest first).
     * Java collection is used, it supports mutable iterator.
@@ -31,7 +30,7 @@ class TrivialStore(
 
 
   {
-    val l = filePrefix.size
+    val l = filePrefix.length
     val pattern = (filePrefix + "[0-9]+").r
     //find newest version
     val files2 = dir.listFiles()
@@ -126,10 +125,10 @@ class TrivialStore(
     in.close()
   }
 
-  override def clean(version:Long) {
+  override def clean(version: Long) {
     //keep last N versions
     files.asScala.toList
-      .dropWhile(_!=version)
+      .dropWhile(_ != version)
       .foreach { num =>
         val file = new File(dir.getPath + "/" + filePrefix + num)
         file.delete()

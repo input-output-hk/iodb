@@ -29,7 +29,7 @@ trait Store {
   }
 
   /** start background cleanup/ compact operation, all versions older than parameter will be removed */
-  def clean(version:Long)
+  def clean(version: Long)
 
   /** pause cleaning operation */
   def cleanStop(): Unit //TODO: Try[Unit] ?
