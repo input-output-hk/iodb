@@ -2,13 +2,13 @@ package examples
 
 import java.io.File
 
-import com.google.common.primitives.{Bytes, Ints}
+import com.google.common.primitives.Ints
 import io.iohk.iodb.ByteArrayWrapper
 import io.iohk.iodb.skiplist._
 import org.junit.Test
 import org.mapdb._
 import scorex.crypto.encode.Base58
-import scorex.crypto.hash.{CryptographicHash, Blake2b256}
+import scorex.crypto.hash.{Blake2b256, CryptographicHash}
 
 import scala.util.Random
 
@@ -52,13 +52,9 @@ class SkipList {
     println(Base58.encode(hashEntry(el._1, el._2)(Blake2b256).data))
     println(Base58.encode(hashEntry(positiveInfinity._1, positiveInfinity._2)(Blake2b256).data))
 
-//    1: CCcvqrkJ65Vp,             , 111111111111
-//    0: CCcvqrkJ65Vp, Ea1bgrywRRyo, 111111111111
-//    e: 4GNEHWgaBsSK, CX2QFDjX7eGC, EyRuUoUH7EoU
-
     skiplist.printStructure()
-    assert("CCcvqrkJ65VprcRtrzQKZG37BsiswfxyCwQRw4t2sbki" == Base58.encode(skiplist.rootHash().data),
-      s"${Base58.encode(skiplist.rootHash().data)} vs CCcvqrkJ65VprcRtrzQKZG37BsiswfxyCwQRw4t2sbki")
+    assert("5UcXdgtVh1aSRA7Zt4mVZvJPQXHeqbPWpPm75fhnDyiU" == Base58.encode(skiplist.rootHash().data),
+      s"${Base58.encode(skiplist.rootHash().data)} vs 5UcXdgtVh1aSRA7Zt4mVZvJPQXHeqbPWpPm75fhnDyiU")
   }
 
 

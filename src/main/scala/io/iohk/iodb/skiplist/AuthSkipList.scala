@@ -244,6 +244,9 @@ class AuthSkipList(
       hasher = hasher)
   }
 
+  def put(key: Array[Byte], value: Array[Byte]): Unit = {
+    put(new K(key), new V(value))
+  }
 
   def put(key: K, value: V) {
     //grow head, so it is at least the same height as new tower
