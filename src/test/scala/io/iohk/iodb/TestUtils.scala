@@ -59,9 +59,9 @@ object TestUtils {
     5 * 1000 + longTest() * 60 * 1000 + System.currentTimeMillis()
 
   /** measures time it takes to execute function */
-  def runningTime(computation: () => Unit): Long = {
+  def runningTime(computation: => Unit): Long = {
     val s = System.currentTimeMillis()
-    computation.apply()
+    computation
     System.currentTimeMillis() - s
   }
 

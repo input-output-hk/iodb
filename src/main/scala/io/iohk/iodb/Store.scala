@@ -1,7 +1,8 @@
 package io.iohk.iodb
 
 /**
-  * Disk storage for Scorex
+  * Interface for a key-value versioned database.
+  * It has been created with a blockchain core needs in mind.
   */
 trait Store {
 
