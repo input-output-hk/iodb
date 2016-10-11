@@ -5,9 +5,11 @@ import java.util
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.concurrent.{ConcurrentSkipListMap, Executors, ThreadFactory, TimeUnit}
+
 import org.slf4j.LoggerFactory
-import scala.collection.mutable.ArrayBuffer
+
 import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
 
 /**
   * Store which combines append-only log and index files
@@ -16,7 +18,8 @@ class LSMStore(
                 dir: File,
                 keySize: Int = 32,
                 backgroundThreads: Int = 1,
-                val keepSingleVersion:Boolean = false
+                val keepSingleVersion: Boolean = false,
+                useUnsafe: Boolean = Utils.unsafeSupported()
               ) extends Store {
 
 
@@ -36,7 +39,7 @@ class LSMStore(
 
   /** main log, contains all data in non-sharded form. Is never compacted, compaction happens in shards */
   protected val mainLog = new LogStore(dir, filePrefix = "log-", keySize = keySize,
-      fileLocks = fileLocks, keepSingleVersion = keepSingleVersion)
+    fileLocks = fileLocks, keepSingleVersion = keepSingleVersion, useUnsafe = useUnsafe)
 
   /** executor used to run background tasks. Threads are set to deamon so JVM process can exit,
     *  while background threads are running */
@@ -204,7 +207,7 @@ class LSMStore(
           //TODO update will sort values, that is unnecessary because buffers are already sorted
           cutOffLog.update(lastVersion, toDelete, toUpdate)
 
-toDelete.clear()
+          toDelete.clear()
           toUpdate.clear()
           shardCounter += 1;
         }
@@ -320,7 +323,7 @@ toDelete.clear()
     try {
       val log = new LogStore(dir = dir, filePrefix = "shardBuf-" + shardIdSeq.incrementAndGet() + "-",
         keySize = keySize, fileLocks = fileLocks, keepSingleVersion = keepSingleVersion,
-        fileSync=false)
+        fileSync = false, useUnsafe = useUnsafe)
 
       val old = shards.lastEntry().getValue.put(key, log)
       assert(old == null)

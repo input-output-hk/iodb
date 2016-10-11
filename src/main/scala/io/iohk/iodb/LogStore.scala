@@ -5,6 +5,7 @@ import java.util.Comparator
 import java.util.concurrent.ConcurrentSkipListMap
 
 import com.google.common.collect.Iterators
+import io.iohk.iodb.Utils._
 
 import scala.collection.JavaConverters._
 
@@ -18,8 +19,9 @@ class LogStore(
                 val keySize: Int = 32,
                 protected val fileLocks:MultiLock[File] = new MultiLock[File](),
                 val keepSingleVersion:Boolean = false,
-                val fileSync:Boolean = true
-    )extends Store with WithLogFile {
+                val fileSync: Boolean = true,
+                useUnsafe: Boolean = unsafeSupported()
+              ) extends Store with WithLogFile {
 
   /*
   There are two files, one with keys, second with values.
@@ -80,14 +82,6 @@ class LogStore(
 
   }
 
-
-  private val checksumOffset = 8 + 8
-  private val fileSizeOffset = 8 + 8
-  private val keyCountOffset = 8 + 8 + 8
-  private val keySizeOffset = keyCountOffset + 4
-
-  private val baseKeyOffset: Long = 8 + 8 + 8 + 4 + 4
-  private val baseValueOffset: Long = 8 + 8 + 8
 
   private val keySizeExtra: Long = keySize + 4 + 8
 
@@ -189,19 +183,42 @@ class LogStore(
     }
     null
   }
-
-
   protected def versionGet(logFile:LogFile, key: K): V = {
     val keyBuf = logFile.keyBuf.duplicate()
     val valueBuf = logFile.valueBuf.duplicate()
 
-    val keyCount: Long = keyBuf.getInt(keyCountOffset)
 
+    def loadValue(): V = {
+      //key found, load value
+      val valueSize = keyBuf.getInt()
+      if (valueSize == -1)
+        return tombstone //tombstone, return nothing
+
+      //load value
+      val valueOffset = keyBuf.getLong()
+      valueBuf.position(valueOffset.toInt)
+      val ret = new Array[Byte](valueSize)
+      valueBuf.get(ret)
+      return new ByteArrayWrapper(ret)
+    }
+
+    if (useUnsafe) {
+      val r = Utils.unsafeBinarySearch(logFile.keyBuf, key.data)
+      if (r < 0)
+        return null;
+      val keyOffset = baseKeyOffset + r * keySizeExtra
+      //load key
+      keyBuf.position(keyOffset.toInt + keySize)
+      return loadValue
+    }
+
+    val key2 = new Array[Byte](keySize)
+    val keyCount: Long = keyBuf.getInt(keyCountOffset)
     var lo: Long = 0
     var hi: Long = keyCount - 1
 
-    val key2 = new Array[Byte](keySize)
     while (lo <= hi) {
+
       //split interval
       val mid = (lo + hi) / 2
       val keyOffset = baseKeyOffset + mid * keySizeExtra
@@ -214,17 +231,7 @@ class LogStore(
       if (comp < 0) lo = mid + 1
       else if (comp > 0) hi = mid - 1
       else {
-        //key found, load value
-        val valueSize = keyBuf.getInt()
-        if (valueSize == -1)
-          return tombstone //tombstone, return nothing
-
-        //load value
-        val valueOffset = keyBuf.getLong()
-        valueBuf.position(valueOffset.toInt)
-        val ret = new Array[Byte](valueSize)
-        valueBuf.get(ret)
-        return new ByteArrayWrapper(ret)
+        return loadValue()
       }
     }
     null
