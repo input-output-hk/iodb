@@ -5,12 +5,12 @@ import java.util.concurrent.atomic.AtomicLong
 
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store, TestUtils}
 
-object BlockProcessing extends Benchmark {
+object BlockProcessing extends Benchmark with App {
 
-  val InitialSize = 500000 //000
+  val InitialSize = 500000
 
-  val Outputs = 1000 //0
-  val Blocks = 50
+  val OutputsPerBlock = 2000
+  val Blocks = 2000
 
   val keysCache = Seq[ByteArrayWrapper]()
 
@@ -25,24 +25,27 @@ object BlockProcessing extends Benchmark {
 
     println("Initial data is loaded into the store")
 
-    val (_, ts ) = (1L to Blocks).foldLeft((Seq[ByteArrayWrapper](), Seq[Long]())) {case ((cache, times), v) =>
-      val (time, newCache) = TestUtils.runningTime(processBlock(version.incrementAndGet, store, Outputs, Outputs, cache).get)
+    val (_, ts) = (1L to Blocks).foldLeft((Seq[ByteArrayWrapper](), Seq[Long]())) { case ((cache, times), v) =>
+      val (time, newCache) = TestUtils.runningTime(processBlock(version.incrementAndGet, store, OutputsPerBlock, OutputsPerBlock, cache).get)
+      println(s"Block processing timefor block# $v: " + time)
       (newCache, times ++ Seq(time))
     }
 
-    val avgTime = ts.sum / Blocks
+    val totalTime = ts.sum
 
     println(s"Store: $store")
-    println(s"Avg block processing time: $avgTime")
+    println(s"Total processing time: $totalTime")
+    println(s"Avg block processing time: ${totalTime / Blocks.toFloat}")
     store.close()
     TestUtils.deleteRecur(dir)
   }
 
-  def main(args: Array[String]): Unit = {
-    var dir = TestUtils.tempDir()
-    bench(new LSMStore(dir, keySize = KeySize, keepSingleVersion = true), dir)
 
-    dir = TestUtils.tempDir()
-    bench(new RocksStore(dir), dir)
-  }
+  var dir = TestUtils.tempDir()
+  bench(new LSMStore(dir, keySize = KeySize), dir)
+
+  println("===========================")
+
+  dir = TestUtils.tempDir()
+  bench(new RocksStore(dir), dir)
 }

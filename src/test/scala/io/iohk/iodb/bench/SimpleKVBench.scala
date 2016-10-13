@@ -33,7 +33,7 @@ object SimpleKVBench extends Benchmark{
     val r = new Random(1)
     var version = 0
     //insert random values
-    val insertTime = TestUtils.runningTime { () =>
+    val insertTime = TestUtils.runningTimeUnit { () =>
       for (i <- 0 until updates) {
         val toInsert = (0 until keyCount).map (_ => randomKV())
         version += 1
@@ -42,7 +42,7 @@ object SimpleKVBench extends Benchmark{
     }
 
 
-    val getTime = TestUtils.runningTime { () =>
+    val getTime = TestUtils.runningTimeUnit { () =>
       val r = new Random(1)
       for (i <- 0 until updates) {
         val toGet = (0 until keyCount).map { i =>
