@@ -39,7 +39,8 @@ package object skiplist {
     */
   protected[skiplist] def levelFromKey(key: K): Int = {
 
-    val maxLevel = scorex.crypto.authds.skiplist.SkipList.maxLevel
+    //todo: uncomment ref to maxLevel after Scrypto release
+    val maxLevel = 128 // == scorex.crypto.authds.skiplist.SkipList.maxLevel
 
     scorex.crypto.authds.skiplist.SkipList.selectLevel(
       new NormalSLElement(key.data, key.data),
