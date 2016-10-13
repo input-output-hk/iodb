@@ -17,8 +17,8 @@ class LogStore(
                 val dir: File,
                 val filePrefix: String,
                 val keySize: Int = 32,
-                protected val fileLocks:MultiLock[File] = new MultiLock[File](),
-                val keepSingleVersion:Boolean = false,
+                protected val fileLocks: MultiLock[File] = new MultiLock[File](),
+                val keepSingleVersion: Boolean = false,
                 val fileSync: Boolean = true,
                 useUnsafe: Boolean = unsafeSupported()
               ) extends Store with WithLogFile {
@@ -64,7 +64,7 @@ class LogStore(
         .map(s => s.substring(0, s.length - ext.length)) //remove suffix
         .map(_.toLong)
         .foreach { version =>
-          val old = files.put(version, new LogFile(version, isMerged = isMerged))
+          val old = files.put(version, LogFile(version, isMerged = isMerged))
           assert(old == null)
         }
     }
@@ -85,7 +85,7 @@ class LogStore(
 
   private val keySizeExtra: Long = keySize + 4 + 8
 
-  private val tombstone = new ByteArrayWrapper(new Array[Byte](0))
+  private val tombstone = ByteArrayWrapper(new Array[Byte](0))
 
 
   /** iterates over all values in single version. Null value is tombstone. */
@@ -96,7 +96,7 @@ class LogStore(
     val valueBuf = logFile.valueBuf.duplicate()
 
     val count = keyBuf.getInt(keyCountOffset)
-    return (0 until count).map { i =>
+    (0 until count).map { i =>
       val key = new Array[Byte](keySize)
       keyBuf.get(key)
 
@@ -110,9 +110,9 @@ class LogStore(
           valueBuf.position(valueOffset.toInt)
           val value = new Array[Byte](valueSize)
           valueBuf.get(value)
-          new ByteArrayWrapper(value)
+          ByteArrayWrapper(value)
         }
-      (new ByteArrayWrapper(key), value)
+      ByteArrayWrapper(key) -> value
     }.iterator
   }
 
@@ -159,31 +159,32 @@ class LogStore(
 
   override def get(key: K): V = {
     val v = get(key, lastVersion)
-    if(v==null || v == None)
+    if (v == null || v.isEmpty)
       return null
-    return v.get
+    v.get
   }
 
-  protected[iodb] def get(key: K, versionId: Long, stopAtVersion:Long = -1): Option[V] = {
-    if(files.isEmpty)
-      return null;
+  protected[iodb] def get(key: K, versionId: Long, stopAtVersion: Long = -1): Option[V] = {
+    if (files.isEmpty)
+      return null
     val versions =
-      if(stopAtVersion>0)
+      if (stopAtVersion > 0)
         files.subMap(versionId, true, stopAtVersion, false).asScala
       else
         files.tailMap(versionId).asScala
     for ((version, logFile) <- versions) {
-      val ret = versionGet(logFile,key)
+      val ret = versionGet(logFile, key)
       if (tombstone eq ret)
         return None //deleted key
       if (ret != null)
         return Some(ret) // value was found
-      if(logFile.isMerged)
-        return null  //contains all versions, will not be found in next versions
+      if (logFile.isMerged)
+        return null //contains all versions, will not be found in next versions
     }
     null
   }
-  protected def versionGet(logFile:LogFile, key: K): V = {
+
+  protected def versionGet(logFile: LogFile, key: K): V = {
     val keyBuf = logFile.keyBuf.duplicate()
     val valueBuf = logFile.valueBuf.duplicate()
 
@@ -199,17 +200,17 @@ class LogStore(
       valueBuf.position(valueOffset.toInt)
       val ret = new Array[Byte](valueSize)
       valueBuf.get(ret)
-      return new ByteArrayWrapper(ret)
+      ByteArrayWrapper(ret)
     }
 
     if (useUnsafe) {
       val r = Utils.unsafeBinarySearch(logFile.keyBuf, key.data)
       if (r < 0)
-        return null;
+        return null
       val keyOffset = baseKeyOffset + r * keySizeExtra
       //load key
       keyBuf.position(keyOffset.toInt + keySize)
-      return loadValue
+      loadValue
     }
 
     val key2 = new Array[Byte](keySize)
@@ -240,7 +241,7 @@ class LogStore(
 
   def update(version: Long, toRemove: Iterable[K],
              toUpdate: Iterable[(K, V)]): Unit = {
-    if(lastVersion>=version) {
+    if (lastVersion >= version) {
       throw new IllegalArgumentException("versionID in argument is not greater than Store lastVersion")
     }
 
@@ -263,7 +264,7 @@ class LogStore(
 
     // keys OutputStream
     val keysFile = keyFile(version)
-    val keysFS = new FileOutputStream(keysFile);
+    val keysFS = new FileOutputStream(keysFile)
     val keysB = new DataOutputStream(new BufferedOutputStream(keysFS))
 
     val keysFileSize = baseKeyOffset + keySizeExtra * all.size
@@ -298,7 +299,7 @@ class LogStore(
 
     keysB.flush()
     keysFS.flush()
-    if(fileSync)
+    if (fileSync)
       keysFS.getFD.sync()
     assert(keysFileSize == keysFS.getChannel.position())
     keysB.close()
@@ -306,17 +307,17 @@ class LogStore(
 
     valuesB.flush()
     valuesFS.flush()
-    if(fileSync)
+    if (fileSync)
       valuesFS.getFD.sync()
     assert(valueOffset == valuesFS.getChannel.position())
     valuesB.close()
     valuesB.close()
 
-    files.put(version, new LogFile(version, isMerged = false))
+    files.put(version, LogFile(version, isMerged = false))
   }
 
 
-  protected[iohk] def updateSorted(versionId: Long, isMerged: Boolean, toUpdate: Iterator[(K, V)], fileSizeLimit:Int = -1): Unit = {
+  protected[iohk] def updateSorted(versionId: Long, isMerged: Boolean, toUpdate: Iterator[(K, V)], fileSizeLimit: Int = -1): Unit = {
 
     // keys OutputStream
     val keysFile = keyFile(versionId, isMerged)
@@ -345,8 +346,8 @@ class LogStore(
     var valueOffset = baseValueOffset
 
     //iterate until toUpdate has more entries, or it becomes too big
-    while(toUpdate.hasNext && (fileSizeLimit == -1 || keysFileSize<fileSizeLimit)){
-      val (key, value)  = toUpdate.next()
+    while (toUpdate.hasNext && (fileSizeLimit == -1 || keysFileSize < fileSizeLimit)) {
+      val (key, value) = toUpdate.next()
       keysB.write(key.data)
       keysB.writeInt(if (value eq tombstone) -1 else value.data.length)
       keysB.writeLong(if (value eq tombstone) -1 else valueOffset)
@@ -368,7 +369,7 @@ class LogStore(
     keysB2.flush()
 
     keysFS.flush()
-    if(fileSync)
+    if (fileSync)
       keysFS.getFD.sync()
     keysB.close()
     keysB.close()
@@ -382,7 +383,7 @@ class LogStore(
     valuesB2.flush()
 
     valuesFS.flush()
-    if(fileSync)
+    if (fileSync)
       valuesFS.getFD.sync()
     valuesB.close()
     valuesB.close()
@@ -421,7 +422,7 @@ class LogStore(
       fileDelete(logFile.keyFile)
       fileDelete(logFile.valueFile)
     }
-    files.put(versionId, new LogFile(versionId, isMerged = true))
+    files.put(versionId, LogFile(versionId, isMerged = true))
   }
 
   override def close(): Unit = {
@@ -431,14 +432,14 @@ class LogStore(
   }
 
 
-  protected[iodb] def merge(versionId:Long, data:Iterator[(K,V)]): Unit = {
+  protected[iodb] def merge(versionId: Long, data: Iterator[(K, V)]): Unit = {
     val versionId = lastVersion
     updateSorted(versionId, isMerged = true, toUpdate = data)
-    if(keepSingleVersion){
+    if (keepSingleVersion) {
       //delete all files from files
       deleteAllFiles()
     }
-    files.put(versionId, new LogFile(versionId, isMerged = true))
+    files.put(versionId, LogFile(versionId, isMerged = true))
   }
 
   protected[iodb] def deleteAllFiles(): Unit = {
@@ -452,11 +453,11 @@ class LogStore(
   /** returns copy of opened files */
   protected[iodb] def getFiles() = new java.util.TreeMap(files)
 
-  protected[iodb] def countUnmergedVersionsAndSize():(Long, Long) = {
+  protected[iodb] def countUnmergedVersionsAndSize(): (Long, Long) = {
     var count = 0L
     var size = 0L
-    files.asScala.values.find{log=>
-      if(!log.isMerged){
+    files.asScala.values.find { log =>
+      if (!log.isMerged) {
         count += 1
         size += log.keyBuf.limit()
       }
@@ -465,15 +466,15 @@ class LogStore(
     (count, size)
   }
 
-  protected[iodb] def lockFiles(fromVersion:Long, toVersion:Long): Unit ={
-    for(file <- files.subMap(fromVersion, toVersion).values().asScala){
+  protected[iodb] def lockFiles(fromVersion: Long, toVersion: Long): Unit = {
+    for (file <- files.subMap(fromVersion, toVersion).values().asScala) {
       fileLocks.lock(file.keyFile)
     }
   }
 
 
-  protected[iodb] def unlockFiles(fromVersion:Long, toVersion:Long): Unit ={
-    for(file <- files.subMap(fromVersion, toVersion).values().asScala){
+  protected[iodb] def unlockFiles(fromVersion: Long, toVersion: Long): Unit = {
+    for (file <- files.subMap(fromVersion, toVersion).values().asScala) {
       fileLocks.unlock(file.keyFile)
     }
   }

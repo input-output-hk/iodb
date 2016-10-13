@@ -27,7 +27,7 @@ object BlockProcessing extends Benchmark with App {
 
     val (_, ts) = (1L to Blocks).foldLeft((Seq[ByteArrayWrapper](), Seq[Long]())) { case ((cache, times), v) =>
       val (time, newCache) = TestUtils.runningTime(processBlock(version.incrementAndGet, store, OutputsPerBlock, OutputsPerBlock, cache).get)
-      println(s"Block processing timefor block# $v: " + time)
+      println(s"Block processing time for block# $v: " + time)
       (newCache, times ++ Seq(time))
     }
 
