@@ -1,10 +1,8 @@
 package io.iohk.iodb.bench
 
 import java.io.File
-import java.util.logging.{LogManager, Logger}
 
 import ch.qos.logback.classic.LoggerContext
-import ch.qos.logback.classic.joran.JoranConfigurator
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store, TestUtils}
 import org.slf4j.LoggerFactory
 
@@ -12,9 +10,7 @@ import org.slf4j.LoggerFactory
   * Performance benchmark utility simulating initial blockchain processing
   */
 object InitialProcessing extends Benchmark {
-  val Milestones = Seq(10, 50, 100, 500, 1000) //should be 1M finally
-
-  //000
+  val Milestones = Seq(1000, 5000, 10000, 50000, 100000, 250000, 500000, 750000, 1000000)
 
   val Inputs = 1900
   //average number of inputs per block
