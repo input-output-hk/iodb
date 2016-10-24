@@ -11,7 +11,7 @@ import scala.collection.JavaConverters._
 
 
 /**
-  * Single log file
+  * Single log file.
   */
 class LogStore(
                 val dir: File,
@@ -69,6 +69,7 @@ class LogStore(
         }
     }
 
+    //TODO test if folder is writeable. IODB fails with nasty exception if dir is owned by root
     load(false)
     load(true)
 

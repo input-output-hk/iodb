@@ -6,13 +6,34 @@ package io.iohk.iodb
   */
 trait Store {
 
+  /** type of key */
   type K = ByteArrayWrapper
+  /** type of value */
   type V = ByteArrayWrapper
 
-  /** returns value associated with key */
+  /**
+    * Finds key and returns value associated with the key.
+    * If key is not found, it returns null.
+    *
+    * It uses lattest (most recent) version available in store.
+    *
+    * @param key to lookup
+    * @return value associated with key or null
+    */
   def get(key: K): V
 
-  /** gets values associated with keys, returns map with result */
+  /**
+    * Batch get.
+    *
+    * Finds all keys from given iterable.
+    * Result is returned in an iterable of key-value pairs.
+    * If key is not found, null value is included in result pair.
+    *
+    * It uses lattest (most recent) version available in store
+    *
+    * @param keys keys to loopup
+    * @return iterable over key-value pairs found in store
+    */
   def get(keys: Iterable[K]): Iterable[(K, V)] = {
     val ret = scala.collection.mutable.ArrayBuffer.empty[(K, V)]
     get(keys, (key: K, value: V) =>
@@ -21,7 +42,18 @@ trait Store {
     ret
   }
 
-  /** gets values associated with keys, consumer is called for each result */
+  /**
+    * Batch get with callback for result value.
+    *
+    * Finds all keys from given iterable.
+    * Results are passed to callable consumer.
+    * If key is not found, null value is passed to callable consumer.
+    *
+    * It uses lattest (most recent) version available in store
+    *
+    * @param keys     keys to lookup
+    * @param consumer callback method to consume results
+    */
   def get(keys: Iterable[K], consumer: (K, V) => Unit): Unit = {
     for (key <- keys) {
       val value = get(key)
@@ -29,20 +61,57 @@ trait Store {
     }
   }
 
-  /** start background cleanup/ compact operation, all versions older than parameter will be removed */
-  def clean(version: Long)
+  /**
+    * Starts or resumes  background compaction.
+    * Compaction performs cleanup and runs in background process.
+    * It removes older version and compacts index to consume less space.
+    *
+    * @param versionID rollback store to this version
+    *
+    */
+  def clean(versionID: Long)
 
-  /** pause cleaning operation */
+  /**
+    * Pauses background compaction process.
+    * This can be used if machine needs all available CPU power for other tasks.
+    */
   def cleanStop(): Unit //TODO: Try[Unit] ?
 
-  /** returns versionID from last update, used when Scorex starts */
+  /**
+    * Returns current versionID used by Store.
+    * It is last version store was update to with `update()` method.
+    *
+    * VersionID is persisted between restarts.
+    */
   def lastVersion: Long
 
-  /** update records and move to new version */
+  /**
+    * Batch update records.
+    *
+    * Each update increments versionID. New versionID is passed as an argument.
+    *
+    * Update might remove some key-value pairs, or can insert new key-value pairs.
+    * Iterable of keys to be deleted, and iterable of key-value pairs to be updated is passed as an argument.
+    *
+    * @param versionID new versionID associated with this update
+    * @param toRemove  iterable over keys which will be deleted in this update
+    * @param toUpdate  iterable over key-value pairs which will be inserted in this update
+    */
+
   def update(versionID: Long, toRemove: Iterable[K], toUpdate: Iterable[(K, V)])
 
-  /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
+  /**
+    * Reverts to an older versionID.
+    * All key-value pairs are reverted to this older version (updates between two versionIDs are removed).
+    *
+    * Higher (newer) versionIDs are discarded and their versionID can be reused
+    */
   def rollback(versionID: Long)
 
+
+  /**
+    * Closes store. All resources associated with this store are closed and released (files, background threads...).
+    * Any get/update operations invoked on closed store will throw an exception.
+    */
   def close(): Unit //TODO: Try[Unit] ?
 }
