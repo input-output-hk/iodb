@@ -23,6 +23,19 @@ class LSMStore(
               ) extends Store {
 
 
+  {
+    //check argument is directory
+    if (!dir.exists()) {
+      throw new IOException("Directory does not exist")
+    }
+    if (!dir.isDirectory) {
+      throw new IOException("Is not directory")
+    }
+    if (!dir.canWrite) {
+      throw new IOException("Directory is not writable")
+    }
+  }
+
   //TODO configurable, perhaps track number of modifications
   protected val shardEvery = 3L
 
