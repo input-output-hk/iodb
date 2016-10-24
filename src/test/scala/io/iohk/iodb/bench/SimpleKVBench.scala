@@ -55,6 +55,7 @@ object SimpleKVBench extends Benchmark{
 
         toGet.foreach { k =>
           assert(null != store.get(k))
+        }
       }
     }
 
