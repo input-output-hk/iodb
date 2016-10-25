@@ -2,7 +2,7 @@ Roadmap
 -------------------
 
 ###0.1 release 
-- expected at 4th November 2016
+- Expected at 4th November 2016
 - Stable implementation of [Store interface](../src/main/scala/io/iohk/iodb/Store.scala) needed to support Scorex functionality
 - Scorex will include example how to configure IODB as one of the backends
 - Solve scalability issue on large dataset
