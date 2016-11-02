@@ -35,7 +35,10 @@ object SimpleKVBench extends Benchmark{
     //insert random values
     val insertTime = TestUtils.runningTimeUnit {
       for (i <- 0 until updates) {
-        val toInsert = (0 until keyCount).map (_ => randomKV())
+        val toInsert = (0 until keyCount).map { a =>
+          val k = randomKey(r)
+          (k, k)
+        }
         version += 1
         store.update(version, List.empty, toInsert)
       }
@@ -43,18 +46,18 @@ object SimpleKVBench extends Benchmark{
 
 
     val getTime = TestUtils.runningTimeUnit {
-      val r = new Random(1)
-      for (i <- 0 until updates) {
-        val toGet = (0 until keyCount).map { i =>
-          val key = new Array[Byte](KeySize)
-          r.nextBytes(key)
-          ByteArrayWrapper(key)
-        }
+      while (true) {
+        val r = new Random(1)
+        for (i <- 0 until updates) {
+          val toGet = (0 until keyCount).map { i =>
+            randomKey(r)
+          }
 
-        version += 1
+          version += 1
 
-        toGet.foreach { k =>
-          assert(null != store.get(k))
+          toGet.foreach { k =>
+            assert(null != store.get(k))
+          }
         }
       }
     }
@@ -64,6 +67,12 @@ object SimpleKVBench extends Benchmark{
     store.close()
     TestUtils.deleteRecur(dir)
     br
+  }
+
+  def randomKey(r: Random): ByteArrayWrapper = {
+    val key = new Array[Byte](KeySize)
+    r.nextBytes(key)
+    ByteArrayWrapper(key)
   }
 
   def printlnResult(res: BenchResult): Unit = {

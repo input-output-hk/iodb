@@ -1,5 +1,8 @@
 package io.iohk.iodb;
 
+import sun.misc.Cleaner;
+import sun.nio.ch.DirectBuffer;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Comparator;
@@ -143,5 +146,29 @@ class Utils {
             offset = Math.min(keySize - 8, offset + 7); //TODO this does not work with small keys
         }
         return 0;
+    }
+
+
+    /**
+     * Hack to unmap MappedByteBuffer.
+     * Unmap is necessary on Windows, otherwise file is locked until JVM exits or BB is GCed.
+     * There is no public JVM API to unmap buffer, so this tries to use SUN proprietary API for unmap.
+     * Any error is silently ignored (for example SUN API does not exist on Android).
+     */
+    protected static boolean unmap(ByteBuffer b) {
+        if (!(b instanceof DirectBuffer))
+            return false;
+
+        // need to dispose old direct buffer, see bug
+        // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4724038
+        DirectBuffer bb = (DirectBuffer) b;
+        Cleaner c = bb.cleaner();
+        if (c != null) {
+            c.clean();
+            return true;
+        }
+        Object attachment = bb.attachment();
+        return attachment != null && attachment instanceof DirectBuffer && unmap(b);
+
     }
 }

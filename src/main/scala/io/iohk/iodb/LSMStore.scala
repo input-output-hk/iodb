@@ -19,7 +19,14 @@ class LSMStore(
                 keySize: Int = 32,
                 backgroundThreads: Int = 1,
                 val keepSingleVersion: Boolean = false,
-                useUnsafe: Boolean = Utils.unsafeSupported()
+                useUnsafe: Boolean = Utils.unsafeSupported(),
+
+                protected val shardEvery: Long = 3L,
+
+                protected val minMergeSize: Long = 1024 * 1024L,
+                protected val minMergeCount: Long = 10L,
+
+                protected val splitSize: Int = 16 * 1024 * 1024
               ) extends Store {
 
 
@@ -36,13 +43,6 @@ class LSMStore(
     }
   }
 
-  //TODO configurable, perhaps track number of modifications
-  protected val shardEvery = 3L
-
-  protected val minMergeSize = 1024*1024L
-  protected val minMergeCount = 10L
-
-  protected val splitSize = 16*1024*1024
   protected val splitKeyCount:Int = splitSize/(keySize*2)
 
   protected val logger = LoggerFactory.getLogger(this.getClass)
@@ -155,6 +155,7 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       mainLog.rollback(versionID)
+      //TODO shards rollback
     } finally {
       lock.writeLock().unlock()
     }
@@ -164,6 +165,7 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       mainLog.clean(version)
+      shards.values().asScala.flatMap(_.values().asScala).foreach(_.clean(version))
     } finally {
       lock.writeLock().unlock()
     }
@@ -248,8 +250,9 @@ class LSMStore(
           lastShardedLogVersion + " and " + lastVersion)
       lastShardedLogVersion = lastVersion
       if(keepSingleVersion) {
-        //everything is distributed to shards,delete all files
+        //everything is distributed to shards, delete all files
         mainLog.deleteAllFiles()
+
       }
     } finally {
       lock.writeLock().unlock()
@@ -275,9 +278,9 @@ class LSMStore(
   protected[iodb] def taskShardMerge(): Unit = {
     lock.writeLock().lock()
     try {
-      //TODO select log to compact
       val shardLayout = shards.lastEntry().getValue
-      val log = shardLayout.firstEntry().getValue
+      //get log with most files for merging
+      val log = shardLayout.values().asScala.toSeq.sortBy(_.getFiles().size).last
 
       //if there is enough unmerged versions, start merging
       val (unmergedCount,unmergedSize) = log.countUnmergedVersionsAndSize()
@@ -293,7 +296,6 @@ class LSMStore(
       //check if it needs splitting
       if(buf.size*keySize >splitSize) {
         //TODO make sure that shardLayout map is at current versionId
-
         //insert first part into log
         var (merge2, buf2) = buf.splitAt(splitKeyCount)
         log.merge(currVersion, merge2.iterator)

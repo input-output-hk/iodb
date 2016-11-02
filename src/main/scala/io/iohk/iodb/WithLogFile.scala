@@ -41,6 +41,29 @@ protected[iodb] trait WithLogFile {
 
     val keyBuf = mmap(keyFile)
     val valueBuf = mmap(valueFile)
+
+    var unmapped = false;
+
+    def deleteFiles(): Unit = {
+      unmapped = true
+      Utils.unmap(keyBuf)
+      Utils.unmap(valueBuf)
+      fileDelete(keyFile)
+      fileDelete(valueFile)
+    }
+
+
+    protected def fileDelete(f: File): Unit = {
+      assert(f.exists())
+      val deleted = f.delete()
+      assert(deleted)
+    }
+
+    def close(): Unit = {
+      Utils.unmap(keyBuf)
+      Utils.unmap(valueBuf)
+    }
+
   }
 
   /**
@@ -77,4 +100,5 @@ protected[iodb] trait WithLogFile {
     c.close()
     ret
   }
+
 }

@@ -396,16 +396,9 @@ class LogStore(
   override def rollback(versionID: Long): Unit = {
     val toDelete = files.headMap(versionID, false).keySet().asScala.toBuffer
     for (versionToDelete <- toDelete) {
-      fileDelete(keyFile(versionToDelete))
-      fileDelete(valueFile(versionToDelete))
-      files.remove(versionToDelete)
+      val logFile = files.remove(versionToDelete)
+      logFile.deleteFiles()
     }
-  }
-
-  protected def fileDelete(f: File): Unit = {
-    assert(f.exists())
-    val deleted = f.delete()
-    assert(deleted)
   }
 
   override def clean(versionId: Long): Unit = {
@@ -420,13 +413,16 @@ class LogStore(
     val logFiles = files.tailMap(versionId, true).values().asScala.toBuffer
     for (logFile <- logFiles) {
       files.remove(logFile.version)
-      fileDelete(logFile.keyFile)
-      fileDelete(logFile.valueFile)
+      logFile.deleteFiles()
     }
     files.put(versionId, LogFile(versionId, isMerged = true))
   }
 
   override def close(): Unit = {
+    //unmap all buffers
+    files.values().asScala.foreach {
+      _.close()
+    }
   }
 
   override def cleanStop(): Unit = {
@@ -437,7 +433,7 @@ class LogStore(
     val versionId = lastVersion
     updateSorted(versionId, isMerged = true, toUpdate = data)
     if (keepSingleVersion) {
-      //delete all files from files
+      //delete all files
       deleteAllFiles()
     }
     files.put(versionId, LogFile(versionId, isMerged = true))
@@ -445,8 +441,7 @@ class LogStore(
 
   protected[iodb] def deleteAllFiles(): Unit = {
     for (f <- files.values.asScala) {
-      f.keyFile.delete()
-      f.valueFile.delete()
+      f.deleteFiles()
     }
     files.clear()
   }
@@ -479,4 +474,6 @@ class LogStore(
       fileLocks.unlock(file.keyFile)
     }
   }
+
+  def fileCount() = files.size()
 }
