@@ -1,8 +1,9 @@
 package io.iohk.iodb
 
 import com.google.common.primitives.Ints
-import scorex.crypto.authds.skiplist.NormalSLElement
-import scorex.crypto.hash.{Blake2b256, CommutativeHash, CryptographicHash}
+import scorex.crypto.hash.{Blake2b256, CommutativeHash, CryptographicHash, Sha256}
+
+import scala.annotation.tailrec
 
 package object skiplist {
 
@@ -39,12 +40,15 @@ package object skiplist {
     */
   protected[skiplist] def levelFromKey(key: K): Int = {
 
-    //todo: uncomment ref to maxLevel after Scrypto release
-    val maxLevel = 128 // == scorex.crypto.authds.skiplist.SkipList.maxLevel
-
-    scorex.crypto.authds.skiplist.SkipList.selectLevel(
-      new NormalSLElement(key.data, key.data),
-      maxLevel)
+    val key2 = key.data;
+    val maxLevel = 128
+    @tailrec
+    def loop(lev: Int = 0): Int = {
+      if (lev == maxLevel) lev
+      else if (Sha256(key2 ++ Ints.toByteArray(lev)).head.toInt < 0) lev
+      else loop(lev + 1)
+    }
+    return loop()
   }
 
 }

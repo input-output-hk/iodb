@@ -1,15 +1,10 @@
 package io.iohk.iodb.skiplist
 
-import java.io.File
-
 import io.iohk.iodb.TestUtils._
-import io.iohk.iodb.{ByteArrayWrapper, TestUtils}
 import org.junit.Test
 import org.mapdb.DBMaker
 import org.scalatest.Assertions
-import scorex.crypto.authds.skiplist._
-import scorex.crypto.authds.storage.MvStoreBlobBlobStorage
-import scorex.crypto.hash.{Blake2b256, CommutativeHash, CryptographicHash}
+import scorex.crypto.hash.{CommutativeHash, CryptographicHash}
 
 import scala.util.Random
 
@@ -32,13 +27,6 @@ class HashTest extends Assertions {
     keys.foreach(a => list2.put(a, a))
     assert(list2.loadHead().hashes == expected)
 
-    implicit val storage = new MvStoreBlobBlobStorage(None)
-    implicit val hf: CommutativeHash[Blake2b256.type] = new CommutativeHash(Blake2b256)
-
-    val sl = new SkipList()(storage, hf)
-    keys.foreach(a => sl.insert(SLElement(a.data, a.data)))
-
-    assert(expected.last == new ByteArrayWrapper(sl.rootHash))
   }
 
   @Test def emptyHash(): Unit = {
@@ -55,10 +43,10 @@ class HashTest extends Assertions {
     verifyHash(List(expected))
   }
 
-
-  def updatedElement(e: NormalSLElement): NormalSLElement = {
-    e.copy(value = (1: Byte) +: e.value)
-  }
+  //
+  //  def updatedElement(e: NormalSLElement): NormalSLElement = {
+  //    e.copy(value = (1: Byte) +: e.value)
+  //  }
 
 
   @Test
@@ -168,27 +156,4 @@ class HashTest extends Assertions {
 
   }
 
-  @Test def compare_scrypto_hash(): Unit = {
-    val file = File.createTempFile("iodb", "test")
-    file.deleteOnExit()
-    file.delete()
-    implicit val storage = new MvStoreBlobBlobStorage(Some(file.getPath()))
-    implicit val hf: CommutativeHash[Blake2b256.type] = new CommutativeHash(Blake2b256)
-
-    val sl = new SkipList()(storage, hf)
-
-    val e1 = SLElement(TestUtils.randomA().data, TestUtils.randomA().data)
-    val e2 = SLElement(TestUtils.randomA().data, TestUtils.randomA().data)
-    sl.insert(e1)
-    sl.insert(e2)
-
-    val sl2 = AuthSkipList.createEmpty(
-      store = DBMaker.memoryDB().make().getStore,
-      hasher = Blake2b256,
-      keySize = e1.key.length)
-    sl2.put(e1.key, e1.value)
-    sl2.put(e2.key, e2.value)
-
-    assert(sl2.rootHash == new ByteArrayWrapper(sl.rootHash))
-  }
 }

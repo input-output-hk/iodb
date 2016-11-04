@@ -11,7 +11,6 @@ dependencyOverrides in ThisBuild ++= Set(
   "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % "2.5.4",
   "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % "2.5.4",
   "com.google.guava" % "guava" % "19.0",
-  "com.h2database" % "h2-mvstore" % "1.4.192",
   "com.novocode" % "junit-interface" % "0.11",
   "com.typesafe" % "config" % "1.3.0",
   "com.typesafe.play" % "play-datacommons_2.11" % "2.4.8",
@@ -22,7 +21,7 @@ dependencyOverrides in ThisBuild ++= Set(
   "junit" % "junit" % "4.11",
   "net.jcip" % "jcip-annotations" % "1.0",
   "net.jpountz.lz4" % "lz4" % "1.3.0",
-  "org.consensusresearch" % "scrypto_2.11" % "1.2.0-RC2",
+  "org.consensusresearch" % "scrypto_2.11" % "1.2.0-RC3",
   "org.eclipse.collections" % "eclipse-collections" % "7.1.0",
   "org.eclipse.collections" % "eclipse-collections-api" % "7.1.0",
   "org.eclipse.collections" % "eclipse-collections-forkjoin" % "7.1.0",
@@ -36,11 +35,11 @@ dependencyOverrides in ThisBuild ++= Set(
   "org.scala-lang.modules" % "scala-xml_2.11" % "1.0.2",
   "org.scala-sbt" % "test-interface" % "1.0",
   "org.scala-stm" % "scala-stm_2.11" % "0.7",
-  "org.scalacheck" % "scalacheck_2.11" % "1.12.5",
+  "org.scalacheck" % "scalacheck_2.11" % "1.12.6",
   "org.scalactic" % "scalactic_2.11" % "2.3.0-SNAP2",
   "org.scalatest" % "scalatest_2.11" % "2.3.0-SNAP2",
   "org.slf4j" % "slf4j-api" % "1.7.21",
   "org.typelevel" % "macro-compat_2.11" % "1.1.1",
   "org.whispersystems" % "curve25519-java" % "0.2.5"
 )
-// LIBRARY_DEPENDENCIES_HASH 6b26dcd9d74984f660453c857f758939ecb9bf67
+// LIBRARY_DEPENDENCIES_HASH c3469162815854c9405b24edd1830b94e0ac25a5
