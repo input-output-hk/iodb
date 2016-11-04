@@ -8,7 +8,7 @@ Roadmap
 - Solve scalability issue on large dataset
 - Performance comparable to RocksDB (with Unsafe, normal mmaped files will be 2x slower)
 - Publish benchmarks
-    - Run bench every week as part of Continous Integration    
+    - Run bench every week as part of Continuous Integration    
 - Publish details about internal architecture
 - Short tutorial with examples
 
@@ -19,8 +19,5 @@ Roadmap
 
 
 ### Open questions
-
-- MapDB cointains its own Authenticated Skip List. It depends on Scrypto for hashing. 
-Move this to Scrypto to reduce dependencies?
 
 

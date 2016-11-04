@@ -1,6 +1,6 @@
 package io.iohk.iodb
 
-import java.io.{BufferedOutputStream, DataOutputStream, File, FileOutputStream}
+import java.io._
 import java.util.Comparator
 import java.util.concurrent.ConcurrentSkipListMap
 
@@ -45,6 +45,19 @@ class LogStore(
    */
 
 
+  {
+    //check argument is directory
+    if (!dir.exists()) {
+      throw new IOException("Directory does not exist")
+    }
+    if (!dir.isDirectory) {
+      throw new IOException("Is not directory")
+    }
+    if (!dir.canWrite) {
+      throw new IOException("Directory is not writable")
+    }
+  }
+
   /**
     * Set of active files sorted in descending order (newest first).
     * First value is key file, second value is value file.
@@ -69,7 +82,6 @@ class LogStore(
         }
     }
 
-    //TODO test if folder is writeable. IODB fails with nasty exception if dir is owned by root
     load(false)
     load(true)
 
