@@ -12,7 +12,18 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 /**
-  * Store which combines append-only log and index files
+  * LSMStore provides sorted LSM Tree backed by append-only-log files and sharded index files.
+  * It has number of parameter which affects storage performance and background compaction process.
+  *
+  * @param dir                directory in which store files exist, or will be created
+  * @param keySize            size of key byte array
+  * @param backgroundThreads  number of background threads used by compaction
+  * @param keepSingleVersion  if true compaction will automatically delete older versions, it will not be possible to use rollback
+  * @param useUnsafe          if true sun.misc.Unsafe file access is used. This is faster, but may cause JVM process to crash
+  * @param shardEveryVersions compaction will trigger sharding after N versions is added
+  * @param minMergeSize       compaction will trigger log merge if combined unmerged data are bigger than this
+  * @param minMergeCount      compaction will trigger log merge if there are N unmerged log files
+  * @param splitSize          maximal size of sharded index. If merged index exceeds this size, it will be split into smaller shards by compaction
   */
 class LSMStore(
                 dir: File,
@@ -21,10 +32,10 @@ class LSMStore(
                 val keepSingleVersion: Boolean = false,
                 useUnsafe: Boolean = Utils.unsafeSupported(),
 
-                protected val shardEvery: Long = 3L,
+                protected val shardEveryVersions: Int = 3,
 
-                protected val minMergeSize: Long = 1024 * 1024L,
-                protected val minMergeCount: Long = 10L,
+                protected val minMergeSize: Int = 1024 * 1024,
+                protected val minMergeCount: Int = 2,
 
                 protected val splitSize: Int = 16 * 1024 * 1024
               ) extends Store {
@@ -263,7 +274,7 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       val lastVersion = mainLog.lastVersion
-      if (lastVersion < lastShardedLogVersion + shardEvery) {
+      if (lastVersion < lastShardedLogVersion + shardEveryVersions) {
         //do not shard yet
         return
       }
