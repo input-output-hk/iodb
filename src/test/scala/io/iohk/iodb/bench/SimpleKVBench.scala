@@ -12,12 +12,19 @@ case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSi
   */
 object SimpleKVBench extends Benchmark{
 
-  val updates = 1000
-  val keyCount = 10
+  var updates = 0L
+  var keys = 0L
 
   def main(args: Array[String]) {
+    updates = args(0).toLong
+    keys = args(1).toLong
+
     var dir = TestUtils.tempDir()
-    val lb = bench(new LSMStore(dir, keySize = KeySize, keepSingleVersion = true), dir)
+    val lb = bench(new LSMStore(dir, keySize = KeySize, keepSingleVersion = true,
+      minMergeCount = 1
+      //        minMergeSize = 128*1024,
+      //        splitSize = 16*1024
+    ), dir)
     printlnResult(lb)
 
     dir = TestUtils.tempDir()
@@ -44,9 +51,9 @@ object SimpleKVBench extends Benchmark{
       }
     }
 
+    Thread.sleep(100000)
 
     val getTime = TestUtils.runningTimeUnit {
-      while (true) {
         val r = new Random(1)
         for (i <- 0 until updates) {
           val toGet = (0 until keyCount).map { i =>
@@ -59,7 +66,6 @@ object SimpleKVBench extends Benchmark{
             assert(null != store.get(k))
           }
         }
-      }
     }
 
     val br = BenchResult(store.getClass.toString, insertTime, getTime, TestUtils.dirSize(dir) / (1024 * 1024))
