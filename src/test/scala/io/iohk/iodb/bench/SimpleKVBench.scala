@@ -12,12 +12,12 @@ case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSi
   */
 object SimpleKVBench extends Benchmark{
 
-  var updates = 0L
-  var keyCount = 0L
+  var updates = 0
+  var keyCount = 0
 
   def main(args: Array[String]) {
-    updates = args(0).toLong
-    keyCount = args(1).toLong
+    updates = args(0).toInt
+    keyCount = args(1).toInt
 
     var dir = TestUtils.tempDir()
     val lb = bench(new LSMStore(dir, keySize = KeySize, keepSingleVersion = true,
