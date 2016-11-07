@@ -12,24 +12,29 @@ case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSi
   */
 object SimpleKVBench extends Benchmark{
 
-  var updates = 0
-  var keyCount = 0
+  var updates = 1000
+  var keyCount = 100
 
   def main(args: Array[String]) {
-    updates = args(0).toInt
-    keyCount = args(1).toInt
-
+    if (args.length > 0) {
+      updates = args(0).toInt
+      keyCount = args(1).toInt
+    }
     var dir = TestUtils.tempDir()
-    val lb = bench(new LSMStore(dir, keySize = KeySize, keepSingleVersion = true,
-      minMergeCount = 1
-      //        minMergeSize = 128*1024,
-      //        splitSize = 16*1024
+    val lb = bench(new LSMStore(dir, keySize = KeySize,
+      //      minMergeCount = 1,
+      //      minMergeSize = 128*1024,
+      //      splitSize = 16*1024,
+      keepSingleVersion = true
     ), dir)
     printlnResult(lb)
 
     dir = TestUtils.tempDir()
     val rb = bench(new RocksStore(dir), dir)
     printlnResult(rb)
+
+    printf("Commit count: %d\n", updates)
+    printf("Keys per update: %d\n", keyCount)
 
     if (lb.getTime < rb.getTime && lb.insertTime < rb.insertTime) {
       println("IODB won!")
@@ -51,7 +56,7 @@ object SimpleKVBench extends Benchmark{
       }
     }
 
-    Thread.sleep(100000)
+    Thread.sleep(10000)
 
     val getTime = TestUtils.runningTimeUnit {
         val r = new Random(1)
@@ -82,9 +87,9 @@ object SimpleKVBench extends Benchmark{
   }
 
   def printlnResult(res: BenchResult): Unit = {
-    println(s"Store: ${res.storage}")
-    println(s"Insert time:  ${res.insertTime}")
-    println(s"Get time: ${res.getTime}")
-    println(s"Store size: ${res.storeSizeMb} MB")
+    println("Store: " + res.storage)
+    printf("Insert time: %d\n", res.insertTime / 1000)
+    printf("Get time: %d\n", res.getTime / 1000)
+    printf("Store size: %d MB\n", res.storeSizeMb)
   }
 }
