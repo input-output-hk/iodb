@@ -33,8 +33,8 @@ object SimpleKVBench extends Benchmark{
     val rb = bench(new RocksStore(dir), dir)
     printlnResult(rb)
 
-    printf("Commit count: %d\n", updates)
-    printf("Keys per update: %d\n", keyCount)
+    printf("Commit count: %,d \n", updates)
+    printf("Keys per update: %,d \n", keyCount)
 
     if (lb.getTime < rb.getTime && lb.insertTime < rb.insertTime) {
       println("IODB won!")
@@ -88,8 +88,8 @@ object SimpleKVBench extends Benchmark{
 
   def printlnResult(res: BenchResult): Unit = {
     println("Store: " + res.storage)
-    printf("Insert time: %d\n", res.insertTime / 1000)
-    printf("Get time: %d\n", res.getTime / 1000)
-    printf("Store size: %d MB\n", res.storeSizeMb)
+    printf("Insert time: %,d \n", res.insertTime / 1000)
+    printf("Get time: %,d \n", res.getTime / 1000)
+    printf("Store size: %,d MB \n", res.storeSizeMb)
   }
 }
