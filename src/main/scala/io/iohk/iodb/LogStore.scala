@@ -63,7 +63,8 @@ class LogStore(
     * First value is key file, second value is value file.
     * Java collection is used, it supports mutable iterator.
     */
-  protected val files = new ConcurrentSkipListMap[Long, LogFile](java.util.Collections.reverseOrder[Long]())
+  protected[iodb] val files = new ConcurrentSkipListMap[Long, LogFile](
+    java.util.Collections.reverseOrder[Long]())
 
   {
 

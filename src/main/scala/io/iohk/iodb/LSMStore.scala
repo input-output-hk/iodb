@@ -62,7 +62,7 @@ class LSMStore(
   protected val fileLocks = new MultiLock[File]()
 
   /** main log, contains all data in non-sharded form. Is never compacted, compaction happens in shards */
-  protected val mainLog = new LogStore(dir, filePrefix = "log-", keySize = keySize,
+  protected[iodb] val mainLog = new LogStore(dir, filePrefix = "log-", keySize = keySize,
     fileLocks = fileLocks, keepSingleVersion = keepSingleVersion, useUnsafe = useUnsafe)
 
   /** executor used to run background tasks. Threads are set to deamon so JVM process can exit,
@@ -79,7 +79,7 @@ class LSMStore(
   /** Map of shards.
     * Primary key is versionId. Shard bounds change over , so layout for older versions is kept.
     * Key is lower inclusive bound of shard. Value is log with sharded values */
-  protected val shards:util.NavigableMap[Long, util.NavigableMap[K, LogStore]] =
+  protected[iodb] val shards: util.NavigableMap[Long, util.NavigableMap[K, LogStore]] =
       new ConcurrentSkipListMap[Long, util.NavigableMap[K, LogStore]](
         java.util.Collections.reverseOrder[Long]())
 
@@ -96,7 +96,7 @@ class LSMStore(
   {
     shards.put(-1L, new ConcurrentSkipListMap[K,LogStore]());
 
-    shardAdd(minKey)
+    shardAdd(minKey, -1L)
 
     def runnable(f: => Unit): Runnable = new Runnable() {
       def run() = f
@@ -135,7 +135,7 @@ class LSMStore(
   protected[iodb] def getFromShard(key: K): V = {
     lock.readLock().lock()
     try {
-      val shard = shards.lastEntry().getValue.floorEntry(key).getValue
+      val shard = shards.firstEntry().getValue.floorEntry(key).getValue
       return shard.get(key)
     } finally {
       lock.readLock().unlock()
@@ -166,7 +166,25 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       mainLog.rollback(versionID)
-      //TODO shards rollback
+
+      val lastValidShardLayout = shards.ceilingEntry(versionID).getValue
+
+      //delete all newer log files
+      shards.headMap(versionID, false).asScala.values
+        .flatMap(_.entrySet().asScala)
+        .foreach { e =>
+          //if the same log exists in previous shards under same cutoff key, do not delete it, just roll back
+          val cuttOffKey = e.getKey
+          val log = e.getValue
+          if (lastValidShardLayout.get(cuttOffKey) eq log) {
+            log.rollback(versionID)
+          } else {
+            //this log file is newer, just delete it
+            e.getValue.deleteAllFiles()
+          }
+        }
+      shards.headMap(versionID, false).clear()
+      getShards.values().asScala.foreach(_.rollback(versionID))
     } finally {
       lock.writeLock().unlock()
     }
@@ -204,13 +222,13 @@ class LSMStore(
   }
 
   //TODO restore this var on file reopen
-  protected var lastShardedLogVersion = -1L
+  protected[iodb] var lastShardedLogVersion = -1L
 
   /** takes values from main log, and distributes them into shards. This task runs in background thread */
   protected[iodb] def taskShardLogForce(): Unit = {
     lock.writeLock().lock()
     try {
-      val shardLayout = shards.lastEntry().getValue
+      val shardLayout = shards.firstEntry().getValue
       val lastVersion = this.lastVersion
       //buffers which store modified values
       val toDelete = new ArrayBuffer[K]()
@@ -289,7 +307,7 @@ class LSMStore(
   protected[iodb] def taskShardMerge(): Unit = {
     lock.writeLock().lock()
     try {
-      val shardLayout = shards.lastEntry().getValue
+      var shardLayout = shards.lastEntry().getValue
       //get log with most files for merging
       val log = shardLayout.values().asScala.toSeq.sortBy(_.getFiles().size).last
 
@@ -306,7 +324,10 @@ class LSMStore(
 
       //check if it needs splitting
       if(buf.size*keySize >splitSize) {
-        //TODO make sure that shardLayout map is at current versionId
+        shardLayout = new ConcurrentSkipListMap[K, LogStore]()
+        assert(shards.firstKey() < currVersion)
+        shards.put(currVersion, shardLayout)
+
         //insert first part into log
         var (merge2, buf2) = buf.splitAt(splitKeyCount)
         log.merge(currVersion, merge2.iterator)
@@ -315,7 +336,7 @@ class LSMStore(
           val (merge2, buf3) = buf2.splitAt(splitKeyCount)
           buf2 = buf3
           val startKey = merge2.head._1
-          shardAdd(startKey)
+          shardAdd(startKey, currVersion)
           shardLayout.get(startKey).merge(currVersion, merge2.iterator)
         }
 
@@ -332,7 +353,7 @@ class LSMStore(
     }
   }
 
-  protected[iodb] def getShards = shards.lastEntry().getValue
+  protected[iodb] def getShards = shards.firstEntry().getValue
 
   protected[iodb] def printShards(out:PrintStream=System.out): Unit ={
     out.println("==== Shard Layout ====")
@@ -344,14 +365,14 @@ class LSMStore(
     }
   }
 
-  protected[iodb] def shardAdd(key: V) = {
+  protected[iodb] def shardAdd(cuttOffKey: V, versionID: Long) = {
     lock.writeLock().lock()
     try {
       val log = new LogStore(dir = dir, filePrefix = "shardBuf-" + shardIdSeq.incrementAndGet() + "-",
         keySize = keySize, fileLocks = fileLocks, keepSingleVersion = keepSingleVersion,
         fileSync = false, useUnsafe = useUnsafe)
 
-      val old = shards.lastEntry().getValue.put(key, log)
+      val old = shards.get(versionID).put(cuttOffKey, log)
       assert(old == null)
     } finally {
       lock.writeLock().unlock()

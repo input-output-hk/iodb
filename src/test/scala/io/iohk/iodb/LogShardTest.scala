@@ -9,7 +9,7 @@ class LogShardTest extends TestWithTempDir {
 
     for (i <- 10L until 100 by 10) {
       val key = TestUtils.fromLong(i)
-      sharded.shardAdd(key)
+      sharded.shardAdd(key, -1)
     }
     sharded
   }
