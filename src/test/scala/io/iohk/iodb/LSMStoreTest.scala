@@ -111,15 +111,15 @@ class LSMStoreTest extends TestWithTempDir {
     assert(store.mainLog.lastVersion == 3)
     assert(store.lastShardedLogVersion == 3)
     assert(store.shards.size == 2)
-    assert(store.shards.firstKey() == 3)
-    assert(store.shards.firstEntry().getValue.size() > 1)
+    assert(store.shards.lastKey() == 3)
+    assert(store.shards.lastEntry().getValue.size() > 1)
 
     val lastFiles = store.mainLog.files.firstEntry().getValue
 
     store.rollback(2L)
 
     assert(store.mainLog.lastVersion == 2)
-    assert(store.shards.firstKey() <= 2)
+    assert(store.shards.lastKey() <= 2)
 
     assert(store.mainLog.files.firstKey() == 2L)
 
