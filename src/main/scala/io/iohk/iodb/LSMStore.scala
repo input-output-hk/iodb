@@ -254,7 +254,7 @@ class LSMStore(
       def flushBuffers(): Unit = {
         //flush buffer if not empty
         if (!toDelete.isEmpty || !toUpdate.isEmpty) {
-          //TODO update will sort values, that is unnecessary because buffers are already sorted
+          //TODO SPEED: update will sort values, that is unnecessary because buffers are already sorted
           cutOffLog.update(lastVersion, toDelete, toUpdate)
 
           toDelete.clear()

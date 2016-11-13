@@ -1,6 +1,10 @@
 package io.iohk.iodb
 
 import java.io._
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.channels.FileChannel.MapMode
+import java.nio.file.StandardOpenOption
 import java.util.Comparator
 import java.util.concurrent.ConcurrentSkipListMap
 
@@ -9,6 +13,64 @@ import io.iohk.iodb.Utils._
 
 import scala.collection.JavaConverters._
 
+
+object LogStore {
+
+  /** file extension for keys */
+  val fileKeyExt: String = ".keys"
+  /** file extension for values */
+  val fileValueExt: String = ".values"
+  /** file extension for merge files */
+  val mergedExt: String = ".merged"
+
+
+  /**
+    * Memory maps file into read-only ByteBuffer. File must be smaller than 2GB due to addressing limit.
+    *
+    * @param file to be mapped
+    * @return ByteByffer of memory mapped file
+    */
+  def mmap(file: File): ByteBuffer = {
+    val c = FileChannel.open(file.toPath, StandardOpenOption.READ)
+    val ret = c.map(MapMode.READ_ONLY, 0, file.length())
+    c.close()
+    ret
+  }
+
+  def fileDelete(f: File): Unit = {
+    assert(f.exists())
+    val deleted = f.delete()
+    assert(deleted)
+  }
+
+
+  /**
+    * Construct log file
+    *
+    * @param version    versionID for which LogFile is created
+    * @param dir        directory where file is placed
+    * @param filePrefix file name prefix
+    * @param isMerged   true if this file is merged (it contains all values from older versions).
+    * @return mapped buffer
+    */
+  def keyFile(version: Long, dir: File, filePrefix: String, isMerged: Boolean = false): File = {
+    new File(dir, filePrefix + version + fileKeyExt + (if (isMerged) mergedExt else ""))
+  }
+
+  /**
+    * Construct value file
+    *
+    * @param version    versionID for which LogFile is created
+    * @param dir        directory where file is placed
+    * @param filePrefix file name prefix
+    * @param isMerged   true if this file is merged (it contains all values from older versions).
+    * @return mapped buffer
+    */
+  def valueFile(version: Long, dir: File, filePrefix: String, isMerged: Boolean = false): File = {
+    new File(dir, filePrefix + version + fileValueExt + (if (isMerged) mergedExt else ""))
+  }
+
+}
 
 /**
   * Single log file.
@@ -21,7 +83,9 @@ class LogStore(
                 val keepSingleVersion: Boolean = false,
                 val fileSync: Boolean = true,
                 useUnsafe: Boolean = unsafeSupported()
-              ) extends Store with WithLogFile {
+              ) extends Store {
+
+  import LogStore._
 
   /*
   There are two files, one with keys, second with values.
@@ -78,7 +142,8 @@ class LogStore(
         .map(s => s.substring(0, s.length - ext.length)) //remove suffix
         .map(_.toLong)
         .foreach { version =>
-          val old = files.put(version, LogFile(version, isMerged = isMerged))
+          val old = files.put(version,
+            LogFile(version, isMerged = isMerged, dir = dir, filePrefix = filePrefix))
           assert(old == null)
         }
     }
@@ -277,7 +342,7 @@ class LogStore(
 
 
     // keys OutputStream
-    val keysFile = keyFile(version)
+    val keysFile = keyFile(version = version, dir = dir, filePrefix = filePrefix)
     val keysFS = new FileOutputStream(keysFile)
     val keysB = new DataOutputStream(new BufferedOutputStream(keysFS))
 
@@ -290,7 +355,7 @@ class LogStore(
 
 
     // values OutputStream
-    val valuesFile = valueFile(version)
+    val valuesFile = valueFile(version, dir = dir, filePrefix = filePrefix)
     val valuesFS = new FileOutputStream(valuesFile)
     val valuesB = new DataOutputStream(new BufferedOutputStream(valuesFS))
 
@@ -327,14 +392,14 @@ class LogStore(
     valuesB.close()
     valuesB.close()
 
-    files.put(version, LogFile(version, isMerged = false))
+    files.put(version, new LogFile(version = version, dir = dir, filePrefix = filePrefix, isMerged = false))
   }
 
 
   protected[iohk] def updateSorted(versionId: Long, isMerged: Boolean, toUpdate: Iterator[(K, V)], fileSizeLimit: Int = -1): Unit = {
 
     // keys OutputStream
-    val keysFile = keyFile(versionId, isMerged)
+    val keysFile = keyFile(version = versionId, dir = dir, filePrefix = filePrefix, isMerged = isMerged)
     val keysFS = new FileOutputStream(keysFile)
     val keysB = new DataOutputStream(new BufferedOutputStream(keysFS))
 
@@ -346,7 +411,7 @@ class LogStore(
 
 
     // values OutputStream
-    val valuesFile = valueFile(versionId, isMerged)
+    val valuesFile = valueFile(version = versionId, dir = dir, filePrefix = filePrefix, isMerged = isMerged)
     val valuesFS = new FileOutputStream(valuesFile)
     val valuesB = new DataOutputStream(new BufferedOutputStream(valuesFS))
 
@@ -428,7 +493,7 @@ class LogStore(
       files.remove(logFile.version)
       logFile.deleteFiles()
     }
-    files.put(versionId, LogFile(versionId, isMerged = true))
+    files.put(versionId, LogFile(versionId, dir = dir, filePrefix = filePrefix, isMerged = true))
   }
 
   override def close(): Unit = {
@@ -449,7 +514,7 @@ class LogStore(
       //delete all files
       deleteAllFiles()
     }
-    files.put(versionId, LogFile(versionId, isMerged = true))
+    files.put(versionId, LogFile(versionId, dir = dir, filePrefix = filePrefix, isMerged = true))
   }
 
   protected[iodb] def deleteAllFiles(): Unit = {
@@ -489,4 +554,47 @@ class LogStore(
   }
 
   def fileCount() = files.size()
+}
+
+
+/**
+  * Represents single log file.
+  * In practice thats are two files (keys, values).
+  * Both files are memory mapped on start.
+  *
+  * @param version  versionID for which LogFile is created
+  * @param isMerged true if this file is merged (it contains all values from older versions).
+  */
+case class LogFile(
+                    version: Long,
+                    isMerged: Boolean,
+                    dir: File,
+                    filePrefix: String) {
+
+  import LogStore._
+
+  def keyFile: File = LogStore.keyFile(version = version, dir = dir, filePrefix = filePrefix, isMerged)
+
+  def valueFile: File = LogStore.valueFile(version = version, dir = dir, filePrefix = filePrefix, isMerged)
+
+  val keyBuf = mmap(keyFile)
+  val valueBuf = mmap(valueFile)
+
+  var unmapped = false;
+
+  def deleteFiles(): Unit = {
+    unmapped = true
+    Utils.unmap(keyBuf)
+    Utils.unmap(valueBuf)
+    fileDelete(keyFile)
+    fileDelete(valueFile)
+  }
+
+
+  def close(): Unit = {
+    Utils.unmap(keyBuf)
+    Utils.unmap(valueBuf)
+  }
+
+
 }

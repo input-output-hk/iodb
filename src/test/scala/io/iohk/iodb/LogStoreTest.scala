@@ -32,7 +32,8 @@ class LogStoreTest extends TestWithTempDir {
 
 
   @Test def clean_versions(): Unit = {
-    var store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)
+    val filePrefix = "store"
+    var store = new LogStore(dir = dir, filePrefix = filePrefix, keySize = 8)
 
     for (i <- 0L until 100) {
       val b = TestUtils.fromLong(i)
@@ -50,10 +51,10 @@ class LogStoreTest extends TestWithTempDir {
         val b = TestUtils.fromLong(i)
         assert(b === store.get(b))
 
-        assert((i == version) === store.keyFile(i, isMerged = true).exists())
-        assert((i == version) === store.valueFile(i, isMerged = true).exists())
-        assert((i > version) === store.keyFile(i).exists())
-        assert((i > version) === store.valueFile(i).exists())
+        assert((i == version) === LogStore.keyFile(i, dir = dir, filePrefix = filePrefix, isMerged = true).exists())
+        assert((i == version) === LogStore.valueFile(i, dir = dir, filePrefix = filePrefix, isMerged = true).exists())
+        assert((i > version) === LogStore.keyFile(i, dir = dir, filePrefix = filePrefix).exists())
+        assert((i > version) === LogStore.valueFile(i, dir = dir, filePrefix = filePrefix).exists())
       }
 
     }
@@ -70,8 +71,7 @@ class LogStoreTest extends TestWithTempDir {
     store.close()
     store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)
 
-    //use .toString because LogFile has reference to LogStore, that makes equality different
-    assert(oldFiles.toString === store.getFiles().toString)
+    assert(oldFiles === store.getFiles())
 
     checkExists(40)
   }

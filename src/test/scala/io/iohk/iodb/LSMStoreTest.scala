@@ -142,4 +142,30 @@ class LSMStoreTest extends TestWithTempDir {
     }
   }
 
+  @Test def reopen() {
+    var store = new LSMStore(dir = dir, keySize = 8,
+      minMergeCount = 1,
+      shardEveryVersions = 1,
+      splitSize = 1024)
+
+    val commitCount = 1000
+    val keyCount = 100
+
+    for (ver <- 0 until commitCount) {
+      val toUpdate = (0 until keyCount).map(i => (fromLong(i), fromLong(ver * i)))
+      store.update(versionID = ver, toRemove = Nil, toUpdate = toUpdate)
+    }
+    store.close()
+    store = new LSMStore(dir = dir, keySize = 8,
+      minMergeCount = 1,
+      shardEveryVersions = 1,
+      splitSize = 1024)
+
+    for (i <- 0 until keyCount) {
+      val value = store.get(fromLong(i))
+      assert(value == fromLong((commitCount - 1) * i))
+    }
+    store.close()
+  }
+
 }
