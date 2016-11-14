@@ -8,7 +8,7 @@ class LSMTimerTest extends TestWithTempDir {
   def shard(): Unit ={
     val s = new LSMStore(dir=dir, keySize = 8)
 
-    for(i <- 0 until 100){
+    for (i <- 1 until 100) {
       val key = TestUtils.fromLong(i)
       s.update(i, Nil, List((key, key)))
     }

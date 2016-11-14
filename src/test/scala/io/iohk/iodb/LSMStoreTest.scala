@@ -145,27 +145,35 @@ class LSMStoreTest extends TestWithTempDir {
   @Test def reopen() {
     var store = new LSMStore(dir = dir, keySize = 8,
       minMergeCount = 1,
+      minMergeSize = 1024,
       shardEveryVersions = 1,
-      splitSize = 1024)
+      splitSize = 1024
+    )
 
-    val commitCount = 1000
-    val keyCount = 100
+    val commitCount = 100
+    val keyCount = 1000
 
-    for (ver <- 0 until commitCount) {
+    for (ver <- 1 until commitCount) {
       val toUpdate = (0 until keyCount).map(i => (fromLong(i), fromLong(ver * i)))
       store.update(versionID = ver, toRemove = Nil, toUpdate = toUpdate)
     }
+
     store.close()
+    val oldShards = store.shards
+    val oldLastShardedLogVersion = store.lastShardedLogVersion
+
     store = new LSMStore(dir = dir, keySize = 8,
       minMergeCount = 1,
       shardEveryVersions = 1,
       splitSize = 1024)
 
-    for (i <- 0 until keyCount) {
+    for (i <- 1 until keyCount) {
       val value = store.get(fromLong(i))
       assert(value == fromLong((commitCount - 1) * i))
     }
     store.close()
+    assert(oldLastShardedLogVersion == store.lastShardedLogVersion)
+    assert(store.shards == oldShards)
   }
 
   @Test def loadSaveShardInfo(): Unit = {
@@ -195,7 +203,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     val initShardInfoFile = files(0)
     assert(store.loadShardInfo(initShardInfoFile) ==
-      new store.ShardInfo(startKey = new store.K(8), endKey = null, startVersionId = -1))
+      new store.ShardInfo(startKey = new store.K(8), endKey = null, startVersionId = 0))
 
 
     //fill with data, force split

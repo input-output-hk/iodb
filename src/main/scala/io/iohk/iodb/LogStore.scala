@@ -240,7 +240,7 @@ class LogStore(
     v.get
   }
 
-  protected[iodb] def get(key: K, versionId: Long, stopAtVersion: Long = -1): Option[V] = {
+  protected[iodb] def get(key: K, versionId: Long, stopAtVersion: Long = 0): Option[V] = {
     if (files.isEmpty)
       return null
     val versions =
@@ -465,7 +465,7 @@ class LogStore(
     valuesB.close()
   }
 
-  override def lastVersion: Long = if (files.isEmpty) -1 else files.firstKey()
+  override def lastVersion: Long = if (files.isEmpty) 0 else files.firstKey()
 
   /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
   override def rollback(versionID: Long): Unit = {
@@ -551,6 +551,32 @@ class LogStore(
   }
 
   def fileCount() = files.size()
+
+
+  def canEqual(other: Any): Boolean = other.isInstanceOf[LogStore]
+
+  override def equals(other: Any): Boolean = {
+    val ret = other match {
+      case that: LogStore =>
+        (that canEqual this) &&
+          files == that.files &&
+          keySizeExtra == that.keySizeExtra &&
+          dir == that.dir &&
+          filePrefix == that.filePrefix &&
+          keySize == that.keySize &&
+          keepSingleVersion == that.keepSingleVersion &&
+          fileSync == that.fileSync
+      case _ => false
+    }
+    if (ret == false)
+      println("aa")
+    ret
+  }
+
+  override def hashCode(): Int = {
+    val state = Seq(files, keySizeExtra, dir, filePrefix, keySize, keepSingleVersion, fileSync)
+    state.map(_.hashCode()).foldLeft(0)((a, b) => 31 * a + b)
+  }
 }
 
 

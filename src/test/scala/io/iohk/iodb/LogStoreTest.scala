@@ -35,7 +35,7 @@ class LogStoreTest extends TestWithTempDir {
     val filePrefix = "store"
     var store = new LogStore(dir = dir, filePrefix = filePrefix, keySize = 8)
 
-    for (i <- 0L until 100) {
+    for (i <- 1L until 100) {
       val b = TestUtils.fromLong(i)
       store.update(i, Nil, List((b, b)))
     }
@@ -80,7 +80,7 @@ class LogStoreTest extends TestWithTempDir {
     var store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)
 
     val c = 100
-    for (version <- (0 until c)) {
+    for (version <- (1 until c)) {
       val toUpdate = (version * c until version * c + c).map(k => (TestUtils.fromLong(k), TestUtils.fromLong(k)))
       store.update(version, Nil, toUpdate)
 
@@ -88,6 +88,7 @@ class LogStoreTest extends TestWithTempDir {
       if (version % 10 == 0)
         store.merge(version, store.keyValues(version))
     }
+
     val files = store.getFiles()
     store.close()
     store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)

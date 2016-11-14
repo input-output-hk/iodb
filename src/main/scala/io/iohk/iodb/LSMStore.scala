@@ -92,10 +92,20 @@ class LSMStore(
     * data read should be under read lock */
   protected val lock = new ReentrantReadWriteLock()
 
-  {
-    shards.put(-1L, new ConcurrentSkipListMap[K,LogStore]());
+  protected[iodb] var lastShardedLogVersion = 0L
 
-    shardAdd(minKey, null, -1L)
+  {
+    shards.put(0L, new ConcurrentSkipListMap[K, LogStore]());
+
+    shardAdd(minKey, null, 0L)
+
+    //restore shards
+    Utils.listFiles(dir, Utils.shardInfoFileExt).foreach { f =>
+      val si = loadShardInfo(f)
+      val prefix = f.getName.stripSuffix("." + Utils.shardInfoFileExt)
+      shardAdd(si.startKey, si.endKey, si.startVersionId, filePrefix = prefix)
+    }
+    lastShardedLogVersion = getShards.values().asScala.map(_.lastVersion).max
 
     def runnable(f: => Unit): Runnable = new Runnable() {
       def run() = f
@@ -226,9 +236,6 @@ class LSMStore(
   override def cleanStop(): Unit = {
     mainLog.cleanStop()
   }
-
-  //TODO restore this var on file reopen
-  protected[iodb] var lastShardedLogVersion = -1L
 
   /** takes values from main log, and distributes them into shards. This task runs in background thread */
   protected[iodb] def taskShardLogForce(): Unit = {
@@ -377,14 +384,19 @@ class LSMStore(
     }
   }
 
-  protected[iodb] def shardAdd(cutOffKey: K, endKey: K, versionID: Long) = {
+  protected[iodb] def shardAdd(cutOffKey: K, endKey: K, versionID: Long,
+                               filePrefix: String = "shardBuf-" + shardIdSeq.incrementAndGet() + "-") = {
     lock.writeLock().lock()
     try {
-      val log = new LogStore(dir = dir, filePrefix = "shardBuf-" + shardIdSeq.incrementAndGet() + "-",
+      val log = new LogStore(dir = dir, filePrefix = filePrefix,
         keySize = keySize, fileLocks = fileLocks, keepSingleVersion = keepSingleVersion,
         fileSync = false, useUnsafe = useUnsafe)
 
-      val currShards = shards.get(versionID);
+      var currShards = shards.get(versionID);
+      if (currShards == null) {
+        currShards = new ConcurrentSkipListMap()
+        shards.put(versionID, currShards)
+      }
       val old = currShards.put(cutOffKey, log)
       //      assert(old == null)
 

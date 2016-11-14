@@ -10,14 +10,14 @@ class LogShardTest extends TestWithTempDir {
     for (i <- 10L until 100 by 10) {
       val key = TestUtils.fromLong(i)
       val endKey = if (i == 90) null else TestUtils.fromLong(i + 10)
-      sharded.shardAdd(key, endKey, -1)
+      sharded.shardAdd(key, endKey, 0L)
     }
     sharded
   }
 
   @Test def shardCount(): Unit = {
     val s = sharded()
-    assert(s.getShards.size === 10)
+    assert(s.getShards.size == 10)
     sharded().close()
   }
 
