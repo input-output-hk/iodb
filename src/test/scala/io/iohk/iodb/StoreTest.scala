@@ -19,12 +19,15 @@ abstract class StoreTest extends TestWithTempDir {
     TestUtils.randomA()
   }
 
+  def countFiles() = dir.listFiles().filter(!_.getName.endsWith(Utils.shardInfoFileExt)).length
+
   @Test def put_get_delete_rollback() {
     val store = makeStore(dir)
 
+
     store.update(1, List.empty, List((a(0), a(1))))
 
-    assert(dir.listFiles().length === 1 * numberOfFilesPerUpdate)
+    assert(countFiles() === 1 * numberOfFilesPerUpdate)
     assert(file(1).exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
@@ -32,7 +35,7 @@ abstract class StoreTest extends TestWithTempDir {
 
     store.update(2, List(a(0)), List.empty)
 
-    assert(dir.listFiles().length === 2 * numberOfFilesPerUpdate)
+    assert(countFiles() === 2 * numberOfFilesPerUpdate)
     assert(file(2).exists())
     assert(store.lastVersion === 2)
 
@@ -40,7 +43,7 @@ abstract class StoreTest extends TestWithTempDir {
 
     store.rollback(1)
 
-    assert(dir.listFiles().length === 1 * numberOfFilesPerUpdate)
+    assert(countFiles() === 1 * numberOfFilesPerUpdate)
     assert(file(1).exists())
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))

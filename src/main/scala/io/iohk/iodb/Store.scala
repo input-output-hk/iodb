@@ -11,6 +11,9 @@ trait Store {
   /** type of value */
   type V = ByteArrayWrapper
 
+  /** type used for versionID */
+  type VersionID = Long
+
   /**
     * Finds key and returns value associated with the key.
     * If key is not found, it returns null.

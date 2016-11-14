@@ -95,7 +95,7 @@ class LSMStore(
   {
     shards.put(-1L, new ConcurrentSkipListMap[K,LogStore]());
 
-    shardAdd(minKey, -1L)
+    shardAdd(minKey, null, -1L)
 
     def runnable(f: => Unit): Runnable = new Runnable() {
       def run() = f
@@ -179,9 +179,9 @@ class LSMStore(
         .flatMap(_.entrySet().asScala)
         .foreach { e =>
           //if the same log exists in previous shards under same cutoff key, do not delete it, just roll back
-          val cuttOffKey = e.getKey
+          val cutOffKey = e.getKey
           val log = e.getValue
-          if (lastValidShardLayout.get(cuttOffKey) eq log) {
+          if (lastValidShardLayout.get(cutOffKey) eq log) {
             log.rollback(versionID)
           } else {
             //this log file is newer, just delete it
@@ -315,7 +315,9 @@ class LSMStore(
     try {
       var shardLayout = shards.lastEntry().getValue
       //get log with most files for merging
-      val log = shardLayout.values().asScala.toSeq.sortBy(_.getFiles().size).last
+      val (origKey, log) = shardLayout.asScala.toSeq.sortBy(_._2.getFiles().size).last
+      var startKey = origKey
+      val nextEndKey = shardLayout.higherKey(origKey)
 
       //if there is enough unmerged versions, start merging
       val (unmergedCount,unmergedSize) = log.countUnmergedVersionsAndSize()
@@ -341,9 +343,14 @@ class LSMStore(
         while(!buf2.isEmpty){
           val (merge2, buf3) = buf2.splitAt(splitKeyCount)
           buf2 = buf3
-          val startKey = merge2.head._1
-          shardAdd(startKey, currVersion)
+          val endKey =
+            if (buf2.isEmpty)
+              nextEndKey
+            else
+              buf2(0)._1
+          shardAdd(startKey, endKey, currVersion)
           shardLayout.get(startKey).merge(currVersion, merge2.iterator)
+          startKey = endKey
         }
       }else{
         //merge everything into same log
@@ -370,18 +377,64 @@ class LSMStore(
     }
   }
 
-  protected[iodb] def shardAdd(cuttOffKey: V, versionID: Long) = {
+  protected[iodb] def shardAdd(cutOffKey: K, endKey: K, versionID: Long) = {
     lock.writeLock().lock()
     try {
       val log = new LogStore(dir = dir, filePrefix = "shardBuf-" + shardIdSeq.incrementAndGet() + "-",
         keySize = keySize, fileLocks = fileLocks, keepSingleVersion = keepSingleVersion,
         fileSync = false, useUnsafe = useUnsafe)
 
-      val old = shards.get(versionID).put(cuttOffKey, log)
+      val currShards = shards.get(versionID);
+      val old = currShards.put(cutOffKey, log)
       //      assert(old == null)
+
+      //create shard info
+      val shardInfoFile = new File(dir, log.filePrefix + "." + Utils.shardInfoFileExt)
+      val shardInfo = ShardInfo(startKey = cutOffKey, endKey = endKey, startVersionId = versionID)
+      shardInfo.save(shardInfoFile)
     } finally {
       lock.writeLock().unlock()
     }
+  }
+
+
+  protected[iodb] case class ShardInfo(startKey: K, endKey: K, startVersionId: VersionID) {
+
+    def save(f: File): Unit = {
+      val out = new FileOutputStream(f);
+      val out2 = new DataOutputStream(out);
+      out2.writeInt(keySize)
+      out2.writeLong(startVersionId)
+      out2.writeBoolean(isLastShard)
+      out2.write(startKey.data)
+      if (!isLastShard)
+        out2.write(endKey.data)
+      out2.flush()
+      out.getFD.sync()
+      out.close()
+    }
+
+    def isLastShard = endKey == null
+  }
+
+  protected[iodb] def loadShardInfo(f: File): ShardInfo = {
+    val in = new DataInputStream(new FileInputStream(f))
+    if (keySize != in.readInt())
+      throw new DataCorruptionException("Wrong key size in shard");
+
+    val startVersionId = in.readLong()
+    val isLastShard = in.readBoolean()
+    val startKey = new K(keySize)
+    in.readFully(startKey.data)
+    val endKey =
+      if (isLastShard) null
+      else {
+        val e = new K(keySize)
+        in.readFully(e.data)
+        e
+      }
+
+    ShardInfo(startKey = startKey, endKey = endKey, startVersionId = startVersionId)
   }
 
 }

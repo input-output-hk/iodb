@@ -168,4 +168,66 @@ class LSMStoreTest extends TestWithTempDir {
     store.close()
   }
 
+  @Test def loadSaveShardInfo(): Unit = {
+    val store = new LSMStore(dir = dir, keySize = 8)
+
+    def test(s: store.ShardInfo): Unit = {
+      val f = new File(dir, Math.random().toString)
+      s.save(f)
+      val s2 = store.loadShardInfo(f)
+      assert(s == s2)
+      f.delete()
+    }
+
+    test(new store.ShardInfo(startKey = fromLong(11), endKey = fromLong(22), startVersionId = 111))
+    test(new store.ShardInfo(startKey = fromLong(11), endKey = null, startVersionId = 111))
+  }
+
+  @Test def shardInfoCreated(): Unit = {
+    val store = new LSMStore(dir = dir, keySize = 8,
+      splitSize = 1024,
+      minMergeSize = 1024,
+      minMergeCount = 1,
+      shardEveryVersions = 1)
+
+    def files = Utils.listFiles(dir, Utils.shardInfoFileExt)
+    assert(files.size == 1)
+
+    val initShardInfoFile = files(0)
+    assert(store.loadShardInfo(initShardInfoFile) ==
+      new store.ShardInfo(startKey = new store.K(8), endKey = null, startVersionId = -1))
+
+
+    //fill with data, force split
+    val toUpdate = (1 until 10000).map(k => (fromLong(k), fromLong(k)))
+    for (version <- (1 until 100)) {
+      store.update(versionID = version, toRemove = Nil, toUpdate = toUpdate)
+    }
+    store.taskShardLogForce()
+    store.taskShardMerge()
+    assert(files.size > 1)
+    assert(files.contains(initShardInfoFile))
+
+    assert(store.getShards.size() > 1)
+
+    val newInfos = files
+      .filter(_ != initShardInfoFile)
+      .map(store.loadShardInfo(_))
+      .toSeq
+      .sortBy(_.startKey)
+
+    assert(newInfos.size == newInfos.toSet.size)
+
+    newInfos.foldRight[store.K](null) { (info: store.ShardInfo, prevEndkey: store.K) =>
+      assert(info.endKey == prevEndkey)
+      assert(info.isLastShard == (prevEndkey == null))
+      assert(prevEndkey == null || info.startKey.compareTo(info.endKey) < 0)
+
+      info.startKey
+    }
+
+    assert(newInfos(0).startKey == new store.K(8))
+  }
+
+
 }

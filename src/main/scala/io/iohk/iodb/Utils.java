@@ -3,6 +3,7 @@ package io.iohk.iodb;
 import sun.misc.Cleaner;
 import sun.nio.ch.DirectBuffer;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Comparator;
@@ -14,6 +15,8 @@ import java.util.logging.Logger;
  */
 class Utils {
 
+
+    static final String shardInfoFileExt = "shardinfo";
 
     static final int checksumOffset = 8 + 8;
     static final int fileSizeOffset = 8 + 8;
@@ -170,5 +173,9 @@ class Utils {
         Object attachment = bb.attachment();
         return attachment != null && attachment instanceof DirectBuffer && unmap(b);
 
+    }
+
+    protected static File[] listFiles(File dir, String extension) {
+        return dir.listFiles(pathname -> pathname.isFile() && pathname.getName().endsWith("." + extension));
     }
 }

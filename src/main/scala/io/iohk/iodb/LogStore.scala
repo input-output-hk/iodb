@@ -132,32 +132,29 @@ class LogStore(
 
   {
 
-    def load(isMerged: Boolean) {
-      val ext = fileKeyExt + (if (isMerged) mergedExt else "")
-      //load existing files
-      dir.listFiles()
-        .map(_.getName)
-        .filter(_.matches(filePrefix + "[0-9]+" + ext)) //get key files
-        .map(_.substring(filePrefix.length)) //remove prefix
-        .map(s => s.substring(0, s.length - ext.length)) //remove suffix
-        .map(_.toLong)
-        .foreach { version =>
-          val old = files.put(version,
-            LogFile(version, isMerged = isMerged, dir = dir, filePrefix = filePrefix))
-          assert(old == null)
-        }
-    }
+    val files2 = dir.listFiles()
+      .filter(f => f.getName.startsWith(filePrefix) && f.isFile)
+      .map(_.getName().substring(filePrefix.length))
+      .filter { f =>
+        f.matches("[0-9]+" + fileKeyExt) ||
+          f.matches("[0-9]+" + fileKeyExt + mergedExt)
+      }
+      .map { f =>
+        val isMerged = f.endsWith(mergedExt)
+        val version = f.split('.')(0).toLong
+        LogFile(version = version, isMerged = isMerged, dir = dir, filePrefix = filePrefix)
+      }
 
-    load(false)
-    load(true)
+    files2.foreach { lf =>
+      //only put if does not contain merged version
+      if (!files.containsKey(lf.version) || !files.get(lf.version).isMerged)
+        files.put(lf.version, lf)
+    }
 
     for ((key, value) <- files.asScala) {
       assert(key == value.version)
     }
 
-    for ((key, value) <- files.asScala.dropRight(1)) {
-      assert(!value.isMerged)
-    }
 
   }
 
