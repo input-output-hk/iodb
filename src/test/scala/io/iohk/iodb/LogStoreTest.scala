@@ -47,14 +47,14 @@ class LogStoreTest extends TestWithTempDir {
     assert(last.version === 20)
 
     def checkExists(version: Long) = {
-      for (i <- 0L until 100) {
+      for (i <- 1L until 100) {
         val b = TestUtils.fromLong(i)
-        assert(b === store.get(b))
+        assert(b == store.get(b))
 
-        assert((i == version) === LogStore.keyFile(i, dir = dir, filePrefix = filePrefix, isMerged = true).exists())
-        assert((i == version) === LogStore.valueFile(i, dir = dir, filePrefix = filePrefix, isMerged = true).exists())
-        assert((i > version) === LogStore.keyFile(i, dir = dir, filePrefix = filePrefix).exists())
-        assert((i > version) === LogStore.valueFile(i, dir = dir, filePrefix = filePrefix).exists())
+        assert((i == version) == LogStore.keyFile(i, dir = dir, filePrefix = filePrefix, isMerged = true).exists())
+        assert((i == version) == LogStore.valueFile(i, dir = dir, filePrefix = filePrefix, isMerged = true).exists())
+        assert((i > version) == LogStore.keyFile(i, dir = dir, filePrefix = filePrefix).exists())
+        assert((i > version) == LogStore.valueFile(i, dir = dir, filePrefix = filePrefix).exists())
       }
 
     }
