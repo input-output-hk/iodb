@@ -79,8 +79,7 @@ class LSMStore(
   /** Map of shards.
     * Primary key is versionId. Shard bounds change over , so layout for older versions is kept.
     * Key is lower inclusive bound of shard. Value is log with sharded values */
-  protected[iodb] val shards: util.NavigableMap[Long, util.NavigableMap[K, LogStore]] =
-  new ConcurrentSkipListMap[Long, util.NavigableMap[K, LogStore]]()
+  protected[iodb] val shards: util.NavigableMap[Long, util.NavigableMap[K, LogStore]] = new ConcurrentSkipListMap()
 
   /** smallest key for this store */
   protected def minKey = new ByteArrayWrapper(new Array[Byte](keySize))
@@ -95,7 +94,7 @@ class LSMStore(
   protected[iodb] var lastShardedLogVersion = 0L
 
   {
-    shards.put(0L, new ConcurrentSkipListMap[K, LogStore]());
+    shards.put(0L, new ConcurrentSkipListMap());
 
     shardAdd(minKey, null, 0L)
 
@@ -339,24 +338,21 @@ class LSMStore(
 
       //check if it needs splitting
       if(buf.size*keySize >splitSize) {
+        //insert new shard map
         shardLayout = new ConcurrentSkipListMap[K, LogStore](shardLayout)
+        shardLayout.remove(startKey)
         assert(shards.lastKey() < currVersion)
         shards.put(currVersion, shardLayout)
 
-        //insert first part into log
-        var (merge2, buf2) = buf.splitAt(splitKeyCount)
-        log.merge(currVersion, merge2.iterator)
-        //now split buf2 into separate buffers
-        while(!buf2.isEmpty){
-          val (merge2, buf3) = buf2.splitAt(splitKeyCount)
-          buf2 = buf3
-          val endKey =
-            if (buf2.isEmpty)
-              nextEndKey
-            else
-              buf2(0)._1
+        for (i <- 0 to buf.size by splitKeyCount) {
+          val endKey: ByteArrayWrapper =
+            if (i + splitKeyCount > buf.size) nextEndKey //is last, take boundary from splited shard
+            else buf(i + splitKeyCount)._1 //is not last, take first key from next shard
+
           shardAdd(startKey, endKey, currVersion)
-          shardLayout.get(startKey).merge(currVersion, merge2.iterator)
+          val untilIndex = Math.min(buf.size, i + splitKeyCount)
+          shardLayout.get(startKey).merge(currVersion, buf.slice(i, untilIndex).iterator)
+          //first key of next shard (if is not last)
           startKey = endKey
         }
       }else{
@@ -447,6 +443,22 @@ class LSMStore(
       }
 
     ShardInfo(startKey = startKey, endKey = endKey, startVersionId = startVersionId)
+  }
+
+  /** check structure, shard boundaries, versions... and throw an exception if data are corrupted */
+  def verify(): Unit = {
+    for ((version, shardLayout) <- shards.asScala) {
+      for ((cutOfKey, log) <- shardLayout.asScala) {
+        val shardInfo = loadShardInfo(new File(log.dir, log.filePrefix + "." + Utils.shardInfoFileExt))
+        for (logVersion <- log.versions) {
+          assert(logVersion >= shardInfo.startVersionId)
+          for ((key, value) <- log.versionIterator(logVersion)) {
+            assert(key.compareTo(shardInfo.startKey) >= 0)
+            assert(shardInfo.endKey == null || key.compareTo(shardInfo.endKey) < 0)
+          }
+        }
+      }
+    }
   }
 
 }

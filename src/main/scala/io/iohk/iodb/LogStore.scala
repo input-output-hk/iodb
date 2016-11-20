@@ -165,7 +165,7 @@ class LogStore(
 
 
   /** iterates over all values in single version. Null value is tombstone. */
-  protected def versionIterator(version: Long): Iterator[(K, V)] = {
+  protected[iodb] def versionIterator(version: Long): Iterator[(K, V)] = {
     val logFile = files.get(version)
     val keyBuf = logFile.keyBuf.duplicate()
     keyBuf.position(baseKeyOffset.toInt)
@@ -505,7 +505,6 @@ class LogStore(
 
 
   protected[iodb] def merge(versionId: Long, data: Iterator[(K, V)]): Unit = {
-    val versionId = lastVersion
     updateSorted(versionId, isMerged = true, toUpdate = data)
     if (keepSingleVersion) {
       //delete all files
