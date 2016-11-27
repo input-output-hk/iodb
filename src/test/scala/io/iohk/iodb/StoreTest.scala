@@ -24,7 +24,6 @@ abstract class StoreTest extends TestWithTempDir {
   @Test def put_get_delete_rollback() {
     val store = makeStore(dir)
 
-
     store.update(1, List.empty, List((a(0), a(1))))
 
     assert(countFiles() === 1 * numberOfFilesPerUpdate)
@@ -48,6 +47,7 @@ abstract class StoreTest extends TestWithTempDir {
     assert(store.lastVersion === 1)
     assert(a(1) === store.get(a(0)))
     assert(store.get(a(1)) === null)
+    store.close()
   }
 
   @Test def reopen() {
@@ -58,12 +58,8 @@ abstract class StoreTest extends TestWithTempDir {
     store = makeStore(dir)
     assert(3 === store.lastVersion)
     assert(a(1) === store.get(a(0)))
+    store.close()
   }
-
-
-  //    intercept[NoSuchElementException] {
-  //      emptyStack.pop()
-  //    }
 
   @Test def null_update() {
     var store = makeStore(dir)
@@ -81,6 +77,7 @@ abstract class StoreTest extends TestWithTempDir {
     }
     assert(1 === store.lastVersion)
     assert(a(1) === store.get(a(0)))
+    store.close()
   }
 
   @Test def wrong_key_size() {
@@ -94,6 +91,7 @@ abstract class StoreTest extends TestWithTempDir {
     }
     assert(1 === store.lastVersion)
     assert(a(1) === store.get(a(0)))
+    store.close()
   }
 }
 

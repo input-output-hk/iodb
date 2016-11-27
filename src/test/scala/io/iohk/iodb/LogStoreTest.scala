@@ -21,6 +21,7 @@ class LogStoreTest extends TestWithTempDir {
       val a2 = store.get(a)
       assert(a === a2)
     }
+    store.close()
   }
 
   @Test def clean_empty(): Unit = {

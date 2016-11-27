@@ -286,7 +286,7 @@ class LogStore(
       val keyOffset = baseKeyOffset + r * keySizeExtra
       //load key
       keyBuf.position(keyOffset.toInt + keySize)
-      loadValue
+      return loadValue
     }
 
     val key2 = new Array[Byte](keySize)

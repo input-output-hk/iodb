@@ -34,6 +34,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       //check for disk leaks
       assert(storeSize < 200 * 1024 * 1024)
     }
+    store.close()
   }
 
   @Test def continous_rollback() {
@@ -71,6 +72,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       //check for disk leaks
       assert(storeSize < 200 * 1024 * 1024)
     }
+    store.close()
   }
 
   @Test def reopen() {
@@ -100,7 +102,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       store.close()
       store = makeStore()
     }
-
+    store.close()
   }
 
   @Test def reopen_rollback() {
@@ -141,11 +143,11 @@ abstract class StoreBurnTest extends TestWithTempDir {
       store.close()
       store = makeStore()
     }
+    store.close()
   }
 
   @Test def rollback_to_skipped_version(): Unit = {
     val store = makeStore()
-
 
     store.update(1, Seq.empty, Seq.empty)
     store.update(2, Seq.empty, Seq.empty)
@@ -155,6 +157,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
     store.rollback(4)
     assert(store.lastVersion == 2)
+    store.close()
   }
 
 }

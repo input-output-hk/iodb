@@ -19,6 +19,7 @@ class LSMStoreTest extends TestWithTempDir {
     store.taskShardMerge()
 
     assert(store.getShards.size() > 1)
+    store.close()
   }
 
   @Test def rollback(): Unit = {
@@ -43,6 +44,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     assert(store.mainLog.files.size == 2)
     assert(store.get(key) == fromLong(2))
+    store.close()
   }
 
 
@@ -74,6 +76,8 @@ class LSMStoreTest extends TestWithTempDir {
 
     assert(store.mainLog.files.size == 2)
     assert(store.get(key) == fromLong(2))
+
+    store.close()
   }
 
   def allShardFiles(store: LSMStore): Set[File] =
@@ -140,6 +144,8 @@ class LSMStoreTest extends TestWithTempDir {
     shardFiles3.foreach { f =>
       assert(f.exists() == shardFiles2.contains(f))
     }
+
+    store.close()
   }
 
   @Test def reopen() {
@@ -189,6 +195,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     test(new store.ShardInfo(startKey = fromLong(11), endKey = fromLong(22), startVersionId = 111))
     test(new store.ShardInfo(startKey = fromLong(11), endKey = null, startVersionId = 111))
+    store.close()
   }
 
   @Test def shardInfoCreated(): Unit = {
@@ -235,6 +242,7 @@ class LSMStoreTest extends TestWithTempDir {
     }
 
     assert(newInfos(0).startKey == new store.K(8))
+    store.close()
   }
 
 

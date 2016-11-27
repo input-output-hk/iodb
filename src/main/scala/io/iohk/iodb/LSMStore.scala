@@ -5,6 +5,7 @@ import java.util
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.concurrent.{ConcurrentSkipListMap, Executors, ThreadFactory, TimeUnit}
+import java.util.logging.Level
 
 import org.slf4j.LoggerFactory
 
@@ -107,16 +108,24 @@ class LSMStore(
     lastShardedLogVersion = getShards.values().asScala.map(_.lastVersion).max
 
     def runnable(f: => Unit): Runnable = new Runnable() {
-      def run() = f
+      def run() = {
+        try {
+          f
+        } catch {
+          case e: Throwable => {
+            Utils.LOG.log(Level.SEVERE, "Background task failed", e)
+          }
+        }
+      }
     }
     //schedule tasks
     executor.scheduleWithFixedDelay(runnable {
       taskShardLog()
-    }, 1000L, 1000L, TimeUnit.MILLISECONDS)
+    }, 200L, 200L, TimeUnit.MILLISECONDS)
 
     executor.scheduleWithFixedDelay(runnable {
       taskShardMerge()
-    }, 1000L, 1000L, TimeUnit.MILLISECONDS)
+    }, 200L, 200L, TimeUnit.MILLISECONDS)
 
   }
 
@@ -322,6 +331,8 @@ class LSMStore(
       var shardLayout = shards.lastEntry().getValue
       //get log with most files for merging
       val (origKey, log) = shardLayout.asScala.toSeq.sortBy(_._2.getFiles().size).last
+      val mergeCount = log.getFiles.values().asScala.takeWhile(!_.isMerged).size
+      //      println("MERGE COUNT - "+log.files.size() + " - " + mergeCount + " - " + origKey)
       var startKey = origKey
       val nextEndKey = shardLayout.higherKey(origKey)
 
@@ -341,7 +352,7 @@ class LSMStore(
         //insert new shard map
         shardLayout = new ConcurrentSkipListMap[K, LogStore](shardLayout)
         shardLayout.remove(startKey)
-        assert(shards.lastKey() < currVersion)
+        assert(shards.lastKey() <= currVersion)
         shards.put(currVersion, shardLayout)
 
         for (i <- 0 to buf.size by splitKeyCount) {
@@ -355,6 +366,11 @@ class LSMStore(
           //first key of next shard (if is not last)
           startKey = endKey
         }
+        if (keepSingleVersion) {
+          log.close()
+          log.deleteAllFiles()
+        }
+
       }else{
         //merge everything into same log
         log.merge(currVersion, buf.iterator)

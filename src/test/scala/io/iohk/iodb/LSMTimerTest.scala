@@ -17,6 +17,8 @@ class LSMTimerTest extends TestWithTempDir {
     //wait until one of the keys is available in shard
     while(s.getFromShard(key)==null)
       Thread.sleep(10)
+
+    s.close()
   }
 
 
@@ -35,5 +37,6 @@ class LSMTimerTest extends TestWithTempDir {
       version += 1
       Thread.sleep(1)
     }
+    s.close()
   }
 }
