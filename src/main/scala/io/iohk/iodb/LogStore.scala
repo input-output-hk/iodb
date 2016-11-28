@@ -482,14 +482,14 @@ class LogStore(
 
     //iterate over data at one version, and save the merged result
     val merged = keyValues(versionId)
-    updateSorted(versionId, isMerged = true, toUpdate = merged)
-
     //remove old files
+    //TODO check if last file is merged, in that case it does not have to be deleted.
     val logFiles = files.tailMap(versionId, true).values().asScala.toBuffer
     for (logFile <- logFiles) {
       files.remove(logFile.version)
       logFile.deleteFiles()
     }
+    updateSorted(versionId, isMerged = true, toUpdate = merged)
     files.put(versionId, LogFile(versionId, dir = dir, filePrefix = filePrefix, isMerged = true))
   }
 
