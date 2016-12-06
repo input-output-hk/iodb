@@ -83,9 +83,10 @@ class LogStore(
                 val keepSingleVersion: Boolean = false,
                 val fileSync: Boolean = true,
                 useUnsafe: Boolean = unsafeSupported()
-              ) extends Store {
+              ) {
 
   import LogStore._
+  import Store._
 
   /*
   There are two files, one with keys, second with values.
@@ -199,8 +200,8 @@ class LogStore(
     // compares result of iterators,
     // Second tuple val is Version, is descending so we get only newest version
     object comparator extends Comparator[(K, Long, V)] {
-      override def compare(o1: (K, Long, V),
-                           o2: (K, Long, V)): Int = {
+      def compare(o1: (K, Long, V),
+                  o2: (K, Long, V)): Int = {
         val c = o1._1.compareTo(o2._1)
         if (c != 0) c else -o1._2.compareTo(o2._2)
       }
@@ -233,7 +234,7 @@ class LogStore(
     iter
   }
 
-  override def get(key: K): V = {
+  def get(key: K): V = {
     val v = get(key, lastVersion)
     if (v == null || v.isEmpty)
       return null
@@ -315,10 +316,12 @@ class LogStore(
   }
 
 
-  def update(version: Long, toRemove: Iterable[K],
+  def update(versionID: VersionID,
+             version: Long,
+             toRemove: Iterable[K],
              toUpdate: Iterable[(K, V)]): Unit = {
     if (lastVersion >= version) {
-      throw new IllegalArgumentException("versionID in argument is not greater than Store lastVersion")
+      throw new IllegalArgumentException("version in argument is not greater than Store lastVersion")
     }
 
     val all = new java.util.TreeMap[K, V].asScala
@@ -465,10 +468,12 @@ class LogStore(
     valuesB.close()
   }
 
-  override def lastVersion: Long = if (files.isEmpty) 0 else files.firstKey()
+  def lastVersion: Long = if (files.isEmpty) 0 else files.firstKey()
+
+  def lastVersionID: VersionID = null //load version id from file here
 
   /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
-  override def rollback(versionID: Long): Unit = {
+  def rollback(versionID: Long): Unit = {
     val toDelete = files.headMap(versionID, false).keySet().asScala.toBuffer
     for (versionToDelete <- toDelete) {
       val logFile = files.remove(versionToDelete)
@@ -476,7 +481,7 @@ class LogStore(
     }
   }
 
-  override def clean(versionId: Long): Unit = {
+  def clean(versionId: Long): Unit = {
     if (files.isEmpty || versionId <= files.lastKey())
       return //already lowest entry
 
@@ -493,14 +498,14 @@ class LogStore(
     files.put(versionId, LogFile(versionId, dir = dir, filePrefix = filePrefix, isMerged = true))
   }
 
-  override def close(): Unit = {
+  def close(): Unit = {
     //unmap all buffers
     files.values().asScala.foreach {
       _.close()
     }
   }
 
-  override def cleanStop(): Unit = {
+  def cleanStop(): Unit = {
   }
 
 

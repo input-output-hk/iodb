@@ -1,10 +1,6 @@
 package io.iohk.iodb
 
-/**
-  * Interface for a key-value versioned database.
-  * It has been created with a blockchain core needs in mind.
-  */
-trait Store {
+object Store {
 
   /** type of key */
   type K = ByteArrayWrapper
@@ -12,7 +8,17 @@ trait Store {
   type V = ByteArrayWrapper
 
   /** type used for versionID */
-  type VersionID = Long
+  type VersionID = ByteArrayWrapper
+
+}
+
+/**
+  * Interface for a key-value versioned database.
+  * It has been created with a blockchain core needs in mind.
+  */
+trait Store {
+
+  import Store._
 
   /**
     * Finds key and returns value associated with the key.
@@ -69,10 +75,10 @@ trait Store {
     * Compaction performs cleanup and runs in background process.
     * It removes older version and compacts index to consume less space.
     *
-    * @param versionID rollback store to this version
+    * @param count how many past versions to keep
     *
     */
-  def clean(versionID: Long)
+  def clean(count: Int)
 
   /**
     * Pauses background compaction process.
@@ -86,7 +92,7 @@ trait Store {
     *
     * VersionID is persisted between restarts.
     */
-  def lastVersion: Long
+  def lastVersionID: VersionID
 
   /**
     * Batch update records.
@@ -101,7 +107,11 @@ trait Store {
     * @param toUpdate  iterable over key-value pairs which will be inserted in this update
     */
 
-  def update(versionID: Long, toRemove: Iterable[K], toUpdate: Iterable[(K, V)])
+  def update(versionID: VersionID, toRemove: Iterable[K], toUpdate: Iterable[(K, V)])
+
+  def update(version: Long, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
+    update(ByteArrayWrapper.fromLong(version), toRemove, toUpdate)
+  }
 
   /**
     * Reverts to an older versionID.
@@ -109,7 +119,7 @@ trait Store {
     *
     * Higher (newer) versionIDs are discarded and their versionID can be reused
     */
-  def rollback(versionID: Long)
+  def rollback(versionID: VersionID)
 
 
   /**

@@ -1,9 +1,19 @@
 package io.iohk.iodb
 
 import java.io.Serializable
+import java.nio.ByteBuffer
 import java.util
 
 import scorex.crypto.encode.Base58
+
+object ByteArrayWrapper {
+
+  def fromLong(id: Long): ByteArrayWrapper = {
+    val b = ByteBuffer.allocate(8)
+    b.putLong(0, id)
+    ByteArrayWrapper(b.array())
+  }
+}
 
 /**
   * Wraps byte array and provides hashCode, equals and compare methods.
