@@ -15,7 +15,7 @@ Updates
 
 All updates are grouped into batch. 
 Each update creates new snapshot with unique `VersionID`
-Example update is [here](../src/main/test/scala/examples/Update.scala).
+Example update is [here](https://github.com/input-output-hk/iodb/tree/master/src/test/scala/examples/Update.scala).
 
 Update method takes list of key and value pairs (`Iterable[(ByteArrayWrapper,ByteArrayWrapper)]`) for update. 
 
@@ -97,7 +97,7 @@ Rollback
 --------------
 Updates can be rolled back. 
 Rollback will discard all changes made in newer updates and restore store to older version. 
-Rollback example is [here](../src/main/test/scala/examples/Rollback.scala).
+Rollback example is [here](https://github.com/input-output-hk/iodb/tree/master/src/test/scala/examples/Rollback.scala).
 
 Rollback will delete newer update files and release some disk space
 
@@ -105,7 +105,7 @@ Rollback will delete newer update files and release some disk space
 Clean
 -----------
 IODB can clean old versions to save disk space. 
-Clean example is  [here](../src/main/test/scala/examples/Clean.scala)
+Clean example is  [here](https://github.com/input-output-hk/iodb/tree/master/src/test/scala/examples/Clean.scala)
 
 Cleanup will remove all older snapshots, except last N versions (N is passed in parameter).
 It will no longer be possible to rollback to older versions (except last N versions).
