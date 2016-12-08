@@ -18,7 +18,7 @@ class Update {
     dir.mkdir()
 
     //open new store
-    val store = new LSMStore(dir = dir)
+    val store = new LSMStore(dir = dir, keySize = 8)
 
     // VersionID identifies snapshot created by update.
     // It can be latter used for rollback.

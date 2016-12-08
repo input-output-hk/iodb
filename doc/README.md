@@ -31,7 +31,7 @@ Log file is newer overwritten, but might be deleted by compaction process once i
 Sequence of updates is 'main log'. 
 List of entries for given version (snapshot) can be always reconstructed by replaying all log files from oldest to newest. 
 
-Key lookup (`get`) traverses log files (updates) from newest to oldest, until key (or its tombstone) is fowund. 
+Key lookup (`get`) traverses log files (updates) from newest to oldest, until key (or its tombstone) is found. 
 
 Main Log provides durability for store. 
 Main Log should survive JVM or hardware crash. 

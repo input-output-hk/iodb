@@ -10,7 +10,7 @@ class LSMTimerTest extends TestWithTempDir {
 
     for (i <- 1 until 100) {
       val key = TestUtils.fromLong(i)
-      s.update(i, Nil, List((key, key)))
+      s.update(TestUtils.fromLong(i), Nil, List((key, key)))
     }
     val key = TestUtils.fromLong(10)
 
@@ -33,7 +33,7 @@ class LSMTimerTest extends TestWithTempDir {
     ){
       //add new version
       val key = TestUtils.fromLong(version)
-      s.update(version, Nil, toUpdate = List((key,key)))
+      s.update(versionID = key, Nil, toUpdate = List((key, key)))
       version += 1
       Thread.sleep(1)
     }

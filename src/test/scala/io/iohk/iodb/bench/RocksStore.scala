@@ -11,6 +11,7 @@ import org.rocksdb._
   */
 class RocksStore(val dir: File) extends Store {
 
+  import Store._
   {
     RocksDB.loadLibrary()
   }
@@ -27,7 +28,7 @@ class RocksStore(val dir: File) extends Store {
   private val lock = new ReentrantReadWriteLock()
 
   //TODO: versioning
-  private var version: Long = 0
+  private var version: VersionID = null
 
 
   /** returns value associated with key */
@@ -37,10 +38,10 @@ class RocksStore(val dir: File) extends Store {
   }
 
   /** returns versionID from last update, used when Scorex starts */
-  override def lastVersion: Long = version
+  override def lastVersionID: VersionID = version
 
   /** update records and move to new version */
-  override def update(versionID: Long, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
+  override def update(versionID: VersionID, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
     for (key <- toRemove) {
       db.remove(key.data)
     }
@@ -49,14 +50,9 @@ class RocksStore(val dir: File) extends Store {
       db.put(key.data, value.data)
     }
     db.flush(new FlushOptions().setWaitForFlush(true))
+    version = versionID
   }
 
-  /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
-  override def rollback(versionID: Long): Unit = ???
-
-  override def clean(version: Long): Unit = {
-
-  }
 
   override def close(): Unit = {
     db.close()
@@ -66,4 +62,8 @@ class RocksStore(val dir: File) extends Store {
   override def cleanStop(): Unit = {
 
   }
+
+  override def clean(count: Int): Unit = ???
+
+  override def rollback(versionID: VersionID): Unit = ???
 }

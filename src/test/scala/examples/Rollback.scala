@@ -10,7 +10,7 @@ import org.junit.Test
   */
 class Rollback {
 
-  @Test def update() {
+  @Test def rollback() {
 
     //create temporary dir
     val dir = File.createTempFile("iodb", "iodb")
@@ -18,7 +18,7 @@ class Rollback {
     dir.mkdir()
 
     //open new store
-    val store = new LSMStore(dir = dir)
+    val store = new LSMStore(dir = dir, keySize = 8)
 
     //insert first update
     val firstVersionID = ByteArrayWrapper.fromLong(11)

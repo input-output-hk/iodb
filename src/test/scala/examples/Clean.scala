@@ -6,11 +6,11 @@ import io.iohk.iodb.{ByteArrayWrapper, LSMStore}
 import org.junit.Test
 
 /**
-  * Shows how rollback is performed
+  * Shows how cleanup is performed
   */
 class Clean {
 
-  @Test def update() {
+  @Test def clean() {
 
     //create temporary dir
     val dir = File.createTempFile("iodb", "iodb")
@@ -18,7 +18,7 @@ class Clean {
     dir.mkdir()
 
     //open new store
-    val store = new LSMStore(dir = dir)
+    val store = new LSMStore(dir = dir, keySize = 8)
 
     //insert first update
     val firstVersionID = ByteArrayWrapper.fromLong(11)

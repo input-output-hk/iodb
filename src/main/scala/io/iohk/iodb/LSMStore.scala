@@ -7,6 +7,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.concurrent.{ConcurrentSkipListMap, Executors, ThreadFactory, TimeUnit}
 import java.util.logging.Level
 
+import io.iohk.iodb.Store.{K, VersionID}
 import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
@@ -104,6 +105,13 @@ class LSMStore(
   protected[iodb] var lastShardedLogVersion = 0L
 
   {
+    versionIDSeq.set(lastVersion)
+    for ((version, logFile) <- mainLog.files.asScala) {
+      val old = versionsLookup.put(logFile.loadVersionID, version)
+      //TODO log should start empty, with no version
+      //      if(old!=null)
+      //        throw new DataCorruptionException("Duplicate VersionID ")
+    }
     shards.put(0L, new ConcurrentSkipListMap());
 
     shardAdd(cutOffKey = minKey, endKey = null, version = 0L,
@@ -219,6 +227,10 @@ class LSMStore(
     try {
       val version = getVersion(versionID)
 
+      //remove all versionIDs from translation map
+      val rollBackVersionIDs = mainLog.files.headMap(version, false).values.asScala.map(_.loadVersionID)
+      rollBackVersionIDs.foreach(versionsLookup.remove(_))
+
       mainLog.rollback(version)
 
       val lastValidShardLayout = shards.floorEntry(version).getValue
@@ -250,13 +262,22 @@ class LSMStore(
     return versionsLookup.get(versionID)
   }
 
+  protected[iodb] def getVersionID(version: Long): VersionID = {
+    val ret = versionsLookup.asScala.find(_._2 == version).map(_._1)
+    return ret.getOrElse(throw new DataCorruptionException("versionID not found"))
+  }
+
   override def clean(count: Int): Unit = {
     lock.writeLock().lock()
     try {
-      val version = mainLog.files.keySet().asScala.take(count.toInt).last
-      //val version = getVersion(versionID)
-      mainLog.clean(version)
-      shards.values().asScala.flatMap(_.values().asScala).foreach(_.clean(version))
+      val version2 = mainLog.files.keySet().asScala.take(count).lastOption
+      if (version2.isEmpty)
+        return
+      //nothing to remove, less then N versions
+      val version = version2.get
+      val versionID = getVersionID(version)
+      mainLog.clean(version, versionID)
+      shards.values().asScala.flatMap(_.values().asScala).foreach(_.clean(version, versionID))
       //TODO purge old shards
     } finally {
       lock.writeLock().unlock()
@@ -271,9 +292,9 @@ class LSMStore(
 
 
   override def close(): Unit = {
+    closeExecutor()
     lock.writeLock().lock()
     try {
-      closeExecutor()
       mainLog.close()
     } finally {
       lock.writeLock().unlock()
@@ -406,7 +427,11 @@ class LSMStore(
           shardAdd(cutOffKey = startKey, endKey = endKey,
             version = currVersion, versionID = currVersionID)
           val untilIndex = Math.min(buf.size, i + splitKeyCount)
-          shardLayout.get(startKey).merge(currVersion, buf.slice(i, untilIndex).iterator)
+          shardLayout.get(startKey)
+            .merge(
+              version = currVersion,
+              versionID = currVersionID,
+              data = buf.slice(i, untilIndex))
           //first key of next shard (if is not last)
           startKey = endKey
         }
@@ -417,7 +442,7 @@ class LSMStore(
 
       }else{
         //merge everything into same log
-        log.merge(currVersion, buf.iterator)
+        log.merge(version = currVersion, versionID = currVersionID, data = buf)
       }
 
       if(logger.isDebugEnabled())
@@ -458,34 +483,13 @@ class LSMStore(
 
       //create shard info
       val shardInfoFile = new File(dir, log.filePrefix + "." + Utils.shardInfoFileExt)
-      val shardInfo = ShardInfo(startKey = cutOffKey, endKey = endKey, startVersionID = versionID, startVersion = version)
+      val shardInfo = ShardInfo(startKey = cutOffKey, endKey = endKey, startVersionID = versionID, startVersion = version, keySize = keySize)
       shardInfo.save(shardInfoFile)
     } finally {
       lock.writeLock().unlock()
     }
   }
 
-
-  protected[iodb] case class ShardInfo(startKey: K, endKey: K, startVersionID: VersionID, startVersion: Long) {
-
-    def save(f: File): Unit = {
-      val out = new FileOutputStream(f);
-      val out2 = new DataOutputStream(out);
-      out2.writeInt(keySize)
-      out2.writeLong(startVersion)
-      out2.writeInt(startVersionID.data.size)
-      out2.write(startVersionID.data)
-      out2.writeBoolean(isLastShard)
-      out2.write(startKey.data)
-      if (!isLastShard)
-        out2.write(endKey.data)
-      out2.flush()
-      out.getFD.sync()
-      out.close()
-    }
-
-    def isLastShard = endKey == null
-  }
 
   protected[iodb] def loadShardInfo(f: File): ShardInfo = {
     val in = new DataInputStream(new FileInputStream(f))
@@ -506,7 +510,7 @@ class LSMStore(
         e
       }
 
-    ShardInfo(startKey = startKey, endKey = endKey, startVersionID = startVersionId, startVersion = startVersion)
+    ShardInfo(startKey = startKey, endKey = endKey, startVersionID = startVersionId, startVersion = startVersion, keySize = keySize)
   }
 
   /** check structure, shard boundaries, versions... and throw an exception if data are corrupted */
@@ -526,4 +530,27 @@ class LSMStore(
     }
   }
 
+}
+
+
+protected[iodb] case class ShardInfo(
+                                      startKey: K, endKey: K, startVersionID: VersionID, startVersion: Long, keySize: Int) {
+
+  def save(f: File): Unit = {
+    val out = new FileOutputStream(f);
+    val out2 = new DataOutputStream(out);
+    out2.writeInt(keySize)
+    out2.writeLong(startVersion)
+    out2.writeInt(startVersionID.data.size)
+    out2.write(startVersionID.data)
+    out2.writeBoolean(isLastShard)
+    out2.write(startKey.data)
+    if (!isLastShard)
+      out2.write(endKey.data)
+    out2.flush()
+    out.getFD.sync()
+    out.close()
+  }
+
+  def isLastShard = endKey == null
 }

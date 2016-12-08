@@ -1,6 +1,6 @@
 package io.iohk.iodb.bench
 
-import io.iohk.iodb.{ByteArrayWrapper, Store}
+import io.iohk.iodb.{ByteArrayWrapper, Store, TestUtils}
 
 import scala.util.{Random, Try}
 
@@ -48,7 +48,7 @@ trait Benchmark {
 
     toRemove.foreach(store.get)
 
-    Try(store.update(version, toRemove, toAppend)).map(_ =>
+    Try(store.update(TestUtils.fromLong(version), toRemove, toAppend)).map(_ =>
       cacheRem ++ toAppend.map(_._1)
     )
   }

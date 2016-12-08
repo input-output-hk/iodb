@@ -22,11 +22,11 @@ class HugeTest extends Assertions with TestWithTempDir {
     var version = 1L
     while (storeSize < spaceReq) {
       val d = (0 until 1000000).map(a => (TestUtils.randomA(), TestUtils.randomA()))
-      store.update(version, List.empty, d)
+      store.update(TestUtils.fromLong(version), List.empty, d)
       version += 1
     }
 
-    store.clean(version - 10)
+    store.clean(10)
     assert(storeSize < spaceReq / 10)
     store.close()
   }

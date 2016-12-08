@@ -18,13 +18,10 @@ class Utils {
 
     static final String shardInfoFileExt = "shardinfo";
 
-    static final int checksumOffset = 8 + 8;
+    static final int checksumOffset = 8;
     static final int fileSizeOffset = 8 + 8;
     static final int keyCountOffset = 8 + 8 + 8;
     static final int keySizeOffset = keyCountOffset + 4;
-
-    static final long baseKeyOffset = 8 + 8 + 8 + 4 + 4;
-    static final long baseValueOffset = 8 + 8 + 8;
 
 
     static final Logger LOG = Logger.getLogger(Utils.class.getName());
@@ -116,14 +113,14 @@ class Utils {
         return Long.reverseBytes(l);
     }
 
-    static int unsafeBinarySearch(ByteBuffer keys, byte[] key) {
+    static int unsafeBinarySearch(ByteBuffer keys, byte[] key, int baseKeyOffset) {
         long bufAddress = ((sun.nio.ch.DirectBuffer) keys).address() + baseKeyOffset;
 
         long[] keyParsed = parseKey(key);
         int keySize = key.length;
 
         int lo = 0;
-        int hi = keys.getInt(keyCountOffset); // key count offset
+        int hi = keys.getInt(keyCountOffset) - 1; // key count offset
         while (lo <= hi) {
             int mid = (lo + hi) / 2;
             int comp = unsafeCompare(bufAddress, mid, keySize, keyParsed);

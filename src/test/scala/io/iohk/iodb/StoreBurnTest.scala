@@ -19,13 +19,15 @@ abstract class StoreBurnTest extends TestWithTempDir {
     var version = 1
     while (System.currentTimeMillis() < endTime) {
       keys.foreach { it =>
-        assert(it === store.get(it))
+        if (it != store.get(it))
+          store.get(it)
+        assert(it == store.get(it))
       }
 
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())
       val toUpdate = newKeys.map(a => (a, a))
-      store.update(version, keys, toUpdate)
-      assert(store.lastVersion === version)
+      store.update(TestUtils.fromLong(version), keys, toUpdate)
+      assert(store.lastVersionID == TestUtils.fromLong(version))
       version += 1
       if (version % 5 == 0)
         store.clean(version-10)
@@ -48,13 +50,14 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
     while (System.currentTimeMillis() < endTime) {
       keys.foreach { it =>
-        assert(it === store.get(it))
+        assert(it == store.get(it))
       }
 
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())
       val toUpdate = newKeys.map(a => (a, a))
-      store.update(version, keys, toUpdate)
-      assert(store.lastVersion === version)
+      val versionID = TestUtils.fromLong(version)
+      store.update(versionID, keys, toUpdate)
+      assert(store.lastVersionID == versionID)
 
       if (version == 50) {
         rollbackKeys = newKeys
@@ -64,7 +67,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
       keys = newKeys
       if (version > 100) {
-        store.rollback(50)
+        store.rollback(TestUtils.fromLong(50))
         version = 51
         keys = rollbackKeys
       }
@@ -84,13 +87,15 @@ abstract class StoreBurnTest extends TestWithTempDir {
     var version = 1
     while (System.currentTimeMillis() < endTime) {
       keys.foreach { it =>
-        assert(it === store.get(it))
+
+        assert(it == store.get(it))
       }
 
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())
       val toUpdate = newKeys.map(a => (a, a))
-      store.update(version, keys, toUpdate)
-      assert(store.lastVersion === version)
+      val versionID = TestUtils.fromLong(version)
+      store.update(versionID, keys, toUpdate)
+      assert(store.lastVersionID == versionID)
       version += 1
       if (version % 5 == 0)
         store.clean(version-10)
@@ -121,8 +126,9 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())
       val toUpdate = newKeys.map(a => (a, a))
-      store.update(version, keys, toUpdate)
-      assert(store.lastVersion === version)
+      val versionID = TestUtils.fromLong(version)
+      store.update(versionID, keys, toUpdate)
+      assert(store.lastVersionID == versionID)
 
       if (version == 50) {
         rollbackKeys = newKeys
@@ -132,7 +138,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
       keys = newKeys
       if (version > 100) {
-        store.rollback(50)
+        store.rollback(TestUtils.fromLong(50))
         version = 51
         keys = rollbackKeys
       }
@@ -149,31 +155,19 @@ abstract class StoreBurnTest extends TestWithTempDir {
   @Test def rollback_to_skipped_version(): Unit = {
     val store = makeStore()
 
-    store.update(1, Seq.empty, Seq.empty)
-    store.update(2, Seq.empty, Seq.empty)
+    store.update(TestUtils.fromLong(1), Seq.empty, Seq.empty)
+    store.update(TestUtils.fromLong(2), Seq.empty, Seq.empty)
 
-    store.update(5, Seq.empty, Seq.empty)
-    store.update(6, Seq.empty, Seq.empty)
+    store.update(TestUtils.fromLong(5), Seq.empty, Seq.empty)
+    store.update(TestUtils.fromLong(6), Seq.empty, Seq.empty)
 
-    store.rollback(4)
-    assert(store.lastVersion == 2)
+    store.rollback(TestUtils.fromLong(2)) //was 4, but that no longer works with non sequential version IDs
+    assert(store.lastVersionID == TestUtils.fromLong(2))
     store.close()
   }
 
 }
 
-
-class TrivialStoreBurnTest extends StoreBurnTest {
-  def makeStore(): Store = {
-    new TrivialStore(dir = dir, keySize = 32)
-  }
-}
-
-class LogStoreBurnTest extends StoreBurnTest {
-  def makeStore(): Store = {
-    new LogStore(dir = dir, filePrefix="store", keySize = 32)
-  }
-}
 
 
 class LSMStoreBurnTest extends StoreBurnTest {
