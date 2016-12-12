@@ -277,7 +277,8 @@ class LSMStore(
       val version = version2.get
       val versionID = getVersionID(version)
       mainLog.clean(version, versionID)
-      shards.values().asScala.flatMap(_.values().asScala).foreach(_.clean(version, versionID))
+      //TODO clear should remove old shard versions. Or at least mark them for removal.
+      //      shards.values().asScala.flatMap(_.values().asScala).foreach(_.clean(version, versionID))
       //TODO purge old shards
     } finally {
       lock.writeLock().unlock()
