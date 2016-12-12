@@ -34,8 +34,8 @@ abstract class StoreTest extends TestWithTempDir {
     assert(countFiles() === 1 * numberOfFilesPerUpdate)
     assert(file(1).exists())
     assert(store.lastVersionID === v1)
-    assert(a(1) === store.get(a(0)))
-    assert(store.get(a(1)) === null)
+    assert(Some(a(1)) === store.get(a(0)))
+    assert(store.get(a(1)) === None)
 
     store.update(v2, List(a(0)), List.empty)
 
@@ -43,15 +43,15 @@ abstract class StoreTest extends TestWithTempDir {
     assert(file(2).exists())
     assert(store.lastVersionID === v2)
 
-    assert(store.get(a(0)) === null)
+    assert(store.get(a(0)) === None)
 
     store.rollback(v1)
 
     assert(countFiles() === 1 * numberOfFilesPerUpdate)
     assert(file(1).exists())
     assert(store.lastVersionID === v1)
-    assert(a(1) === store.get(a(0)))
-    assert(store.get(a(1)) === null)
+    assert(a(1) === store(a(0)))
+    assert(store.get(a(1)) === None)
     store.close()
   }
 
@@ -62,7 +62,7 @@ abstract class StoreTest extends TestWithTempDir {
 
     store = makeStore(dir)
     assert(v3 === store.lastVersionID)
-    assert(a(1) === store.get(a(0)))
+    assert(Some(a(1)) === store.get(a(0)))
     store.close()
   }
 
@@ -75,13 +75,13 @@ abstract class StoreTest extends TestWithTempDir {
       store.update(v2, List(a(0)), List((null, a(1))))
     }
     assert(v1 === store.lastVersionID)
-    assert(a(1) === store.get(a(0)))
+    assert(Some(a(1)) === store.get(a(0)))
 
     intercept[NullPointerException] {
       store.update(v3, List(null), List((a(0), a(2))))
     }
     assert(v1 === store.lastVersionID)
-    assert(a(1) === store.get(a(0)))
+    assert(a(1) === store(a(0)))
     store.close()
   }
 
@@ -95,7 +95,7 @@ abstract class StoreTest extends TestWithTempDir {
       store.update(v2, List(a(0)), List((wrongKey, a(1))))
     }
     assert(v1 === store.lastVersionID)
-    assert(a(1) === store.get(a(0)))
+    assert(Some(a(1)) === store.get(a(0)))
     store.close()
   }
 }

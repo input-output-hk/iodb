@@ -21,7 +21,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       keys.foreach { it =>
         if (it != store.get(it))
           store.get(it)
-        assert(it == store.get(it))
+        assert(it == store(it))
       }
 
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())
@@ -50,7 +50,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
     while (System.currentTimeMillis() < endTime) {
       keys.foreach { it =>
-        assert(it == store.get(it))
+        assert(it == store(it))
       }
 
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())
@@ -87,8 +87,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
     var version = 1
     while (System.currentTimeMillis() < endTime) {
       keys.foreach { it =>
-
-        assert(it == store.get(it))
+        assert(it == store(it))
       }
 
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())
@@ -121,7 +120,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
 
     while (System.currentTimeMillis() < endTime) {
       keys.foreach { it =>
-        assert(it === store.get(it))
+        assert(it == store(it))
       }
 
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())

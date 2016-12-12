@@ -27,7 +27,7 @@ class LogShardTest extends TestWithTempDir {
       val key = TestUtils.fromLong(i)
       s.update(TestUtils.fromLong(i), Nil, List((key, key)))
       s.taskShardLogForce()
-      assert(s.getFromShard(key) === key)
+      assert(s.getFromShard(key) === Some(key))
       s.close()
     }
   }

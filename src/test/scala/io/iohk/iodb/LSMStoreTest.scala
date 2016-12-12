@@ -46,7 +46,7 @@ class LSMStoreTest extends TestWithTempDir {
     assert(!lastFiles.logFile.exists())
 
     assert(store.mainLog.files.size == 2)
-    assert(store.get(key) == fromLong(2))
+    assert(store.get(key) == Some(fromLong(2)))
     store.close()
   }
 
@@ -77,7 +77,7 @@ class LSMStoreTest extends TestWithTempDir {
     assert(!lastFiles.logFile.exists())
 
     assert(store.mainLog.files.size == 2)
-    assert(store.get(key) == fromLong(2))
+    assert(store(key) == fromLong(2))
 
     store.close()
   }
@@ -132,7 +132,7 @@ class LSMStoreTest extends TestWithTempDir {
     assert(!lastFiles.logFile.exists())
 
     assert(store.mainLog.files.size == 2)
-    assert(store.get(key) == fromLong(2))
+    assert(store(key) == fromLong(2))
 
     //ensure shard layout was restored
     assert(store.shards.size() == 1)
@@ -175,7 +175,7 @@ class LSMStoreTest extends TestWithTempDir {
       splitSize = 1024)
 
     for (i <- 1 until keyCount) {
-      val value = store.get(fromLong(i))
+      val value = store(fromLong(i))
       assert(value == fromLong((commitCount - 1) * i))
     }
     store.close()

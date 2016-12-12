@@ -153,7 +153,8 @@ class LSMStore(
   }
 
   var counter = 0
-  override def get(key: K): V = {
+
+  override def get(key: K): Option[V] = {
     lock.readLock().lock()
     try {
       counter += 1
@@ -164,11 +165,11 @@ class LSMStore(
         .getValue
       val mainLogVersion = lastVersion
       val shardVersion = shard.lastVersion
-      if(mainLogVersion!=shardVersion){
+      if (mainLogVersion != shardVersion) {
         //some entries were not sharded yet, try main log
-        val ret = mainLog.get(key=key, versionId = mainLogVersion, stopAtVersion = shardVersion)
-        if(ret!=null)
-          return ret.getOrElse(null); //null is for tombstones found in main log
+        val ret = mainLog.get(key = key, versionId = mainLogVersion, stopAtVersion = shardVersion)
+        if (ret != null)
+          return ret
       }
 
       return shard.get(key)
@@ -178,7 +179,7 @@ class LSMStore(
   }
 
   /** gets value from sharded log, ignore main log */
-  protected[iodb] def getFromShard(key: K): V = {
+  protected[iodb] def getFromShard(key: K): Option[V] = {
     lock.readLock().lock()
     try {
       val shard = shards.lastEntry().getValue.floorEntry(key).getValue

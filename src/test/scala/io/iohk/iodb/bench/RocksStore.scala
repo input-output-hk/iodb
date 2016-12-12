@@ -32,9 +32,9 @@ class RocksStore(val dir: File) extends Store {
 
 
   /** returns value associated with key */
-  override def get(key: K): V = {
+  override def get(key: K): Option[V] = {
     val ret = db.get(key.data)
-    if (ret == null) null else ByteArrayWrapper(ret)
+    if (ret == null) None else Some(ByteArrayWrapper(ret))
   }
 
   /** returns versionID from last update, used when Scorex starts */

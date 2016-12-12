@@ -29,7 +29,16 @@ trait Store {
     * @param key to lookup
     * @return value associated with key or null
     */
-  def get(key: K): V
+  def get(key: K): Option[V]
+
+  /** Returns value associated with the key, or defualt value from user
+    */
+  def getOrElse(key: K, default: => V): V = get(key).getOrElse(default)
+
+  /** returns value associated with the key or throws `NoSuchElementException` */
+  def apply(key: K): V = getOrElse(key, {
+    throw new NoSuchElementException()
+  })
 
   /**
     * Batch get.
@@ -43,9 +52,9 @@ trait Store {
     * @param keys keys to loopup
     * @return iterable over key-value pairs found in store
     */
-  def get(keys: Iterable[K]): Iterable[(K, V)] = {
-    val ret = scala.collection.mutable.ArrayBuffer.empty[(K, V)]
-    get(keys, (key: K, value: V) =>
+  def get(keys: Iterable[K]): Iterable[(K, Option[V])] = {
+    val ret = scala.collection.mutable.ArrayBuffer.empty[(K, Option[V])]
+    get(keys, (key: K, value: Option[V]) =>
       ret += ((key, value))
     )
     ret
@@ -56,14 +65,13 @@ trait Store {
     *
     * Finds all keys from given iterable.
     * Results are passed to callable consumer.
-    * If key is not found, null value is passed to callable consumer.
     *
     * It uses lattest (most recent) version available in store
     *
     * @param keys     keys to lookup
     * @param consumer callback method to consume results
     */
-  def get(keys: Iterable[K], consumer: (K, V) => Unit): Unit = {
+  def get(keys: Iterable[K], consumer: (K, Option[V]) => Unit): Unit = {
     for (key <- keys) {
       val value = get(key)
       consumer(key, value)

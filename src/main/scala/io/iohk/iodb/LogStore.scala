@@ -218,16 +218,13 @@ class LogStore(
     iter.toBuffer
   }
 
-  def get(key: K): V = {
-    val v = get(key, lastVersion)
-    if (v == null || v.isEmpty)
-      return null
-    v.get
+  def get(key: K): Option[V] = {
+    return get(key, lastVersion)
   }
 
   protected[iodb] def get(key: K, versionId: Long, stopAtVersion: Long = 0): Option[V] = {
     if (files.isEmpty)
-      return null
+      return None
     val versions =
       if (stopAtVersion > 0)
         files.subMap(versionId, true, stopAtVersion, false).asScala
@@ -240,9 +237,9 @@ class LogStore(
       if (ret != null)
         return Some(ret) // value was found
       if (logFile.isMerged)
-        return null //contains all versions, will not be found in next versions
+        return None //contains all versions, will not be found in next versions
     }
-    null
+    None
   }
 
   protected def versionGet(logFile: LogFile, key: K): V = {

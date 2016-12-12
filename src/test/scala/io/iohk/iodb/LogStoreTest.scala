@@ -20,8 +20,7 @@ class LogStoreTest extends TestWithTempDir {
       Seq.empty, s.map { a => (a, a) })
 
     for (a <- s) {
-      val a2 = store.get(a)
-      assert(a == a2)
+      assert(Some(a) == store.get(a))
     }
     store.close()
   }
@@ -52,7 +51,7 @@ class LogStoreTest extends TestWithTempDir {
     def checkExists(version: Long) = {
       for (i <- 1L until 100) {
         val b = TestUtils.fromLong(i)
-        assert(b == store.get(b))
+        assert(Some(b) == store.get(b))
 
         assert((i == version) == LogStore.logFile(i, dir = dir, filePrefix = filePrefix, isMerged = true).exists())
         assert((i > version) == LogStore.logFile(i, dir = dir, filePrefix = filePrefix).exists())
