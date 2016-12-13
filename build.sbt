@@ -1,10 +1,10 @@
 import _root_.sbt.Keys._
 
-organization := "io.iohk"
+organization := "org.scorexfoundation"
 
 name := "iodb"
 
-version := "1.0-M1-SNAPSHOT"
+version := "0.1"
 
 scalaVersion := "2.11.8"
 
