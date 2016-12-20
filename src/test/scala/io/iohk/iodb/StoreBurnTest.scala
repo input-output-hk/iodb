@@ -27,7 +27,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       val newKeys = (0 until 10000).map(i => TestUtils.randomA())
       val toUpdate = newKeys.map(a => (a, a))
       store.update(TestUtils.fromLong(version), keys, toUpdate)
-      assert(store.lastVersionID == TestUtils.fromLong(version))
+      assert(store.lastVersionID.get == TestUtils.fromLong(version))
       version += 1
       if (version % 5 == 0)
         store.clean(version-10)
@@ -57,7 +57,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       val toUpdate = newKeys.map(a => (a, a))
       val versionID = TestUtils.fromLong(version)
       store.update(versionID, keys, toUpdate)
-      assert(store.lastVersionID == versionID)
+      assert(store.lastVersionID.get == versionID)
 
       if (version == 50) {
         rollbackKeys = newKeys
@@ -94,7 +94,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       val toUpdate = newKeys.map(a => (a, a))
       val versionID = TestUtils.fromLong(version)
       store.update(versionID, keys, toUpdate)
-      assert(store.lastVersionID == versionID)
+      assert(store.lastVersionID.get == versionID)
       version += 1
       if (version % 5 == 0)
         store.clean(version-10)
@@ -127,7 +127,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
       val toUpdate = newKeys.map(a => (a, a))
       val versionID = TestUtils.fromLong(version)
       store.update(versionID, keys, toUpdate)
-      assert(store.lastVersionID == versionID)
+      assert(store.lastVersionID.get == versionID)
 
       if (version == 50) {
         rollbackKeys = newKeys
@@ -161,7 +161,7 @@ abstract class StoreBurnTest extends TestWithTempDir {
     store.update(TestUtils.fromLong(6), Seq.empty, Seq.empty)
 
     store.rollback(TestUtils.fromLong(2)) //was 4, but that no longer works with non sequential version IDs
-    assert(store.lastVersionID == TestUtils.fromLong(2))
+    assert(store.lastVersionID.get == TestUtils.fromLong(2))
     store.close()
   }
 

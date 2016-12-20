@@ -38,7 +38,7 @@ class RocksStore(val dir: File) extends Store {
   }
 
   /** returns versionID from last update, used when Scorex starts */
-  override def lastVersionID: VersionID = version
+  override def lastVersionID: Option[VersionID] = Some(version)
 
   /** update records and move to new version */
   override def update(versionID: VersionID, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {

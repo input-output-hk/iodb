@@ -98,9 +98,11 @@ trait Store {
     * Returns current versionID used by Store.
     * It is last version store was update to with `update()` method.
     *
+    * If store is empty, the last version does not exist yet and store returns `None`
+    *
     * VersionID is persisted between restarts.
     */
-  def lastVersionID: VersionID
+  def lastVersionID: Option[VersionID]
 
   /**
     * Batch update records.

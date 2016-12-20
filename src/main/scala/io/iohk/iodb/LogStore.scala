@@ -381,7 +381,12 @@ class LogStore(
 
   def lastVersion: Long = if (files.isEmpty) 0 else files.firstKey()
 
-  def lastVersionID: VersionID = files.firstEntry().getValue.loadVersionID
+  def lastVersionID: Option[VersionID] = {
+    val first = files.firstEntry()
+    if (first == null)
+      return None
+    return Some(first.getValue.loadVersionID)
+  }
 
   /** reverts to older version. Higher (newer) versions are discarded and their versionID can be reused */
   def rollback(versionID: Long): Unit = {

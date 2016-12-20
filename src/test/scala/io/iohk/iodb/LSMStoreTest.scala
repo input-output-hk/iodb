@@ -38,7 +38,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     store.rollback(v2)
 
-    assert(store.mainLog.lastVersionID == v2)
+    assert(store.mainLog.lastVersionID.get == v2)
     assert(store.shards.firstKey() <= 2)
 
     assert(store.mainLog.files.firstKey() == 2L)
@@ -62,14 +62,14 @@ class LSMStoreTest extends TestWithTempDir {
     store.taskShardLogForce()
 
     assert(store.mainLog.files.size == 3)
-    assert(store.mainLog.lastVersionID == v3)
+    assert(store.mainLog.lastVersionID.get == v3)
     assert(store.lastShardedLogVersion == 3)
 
     val lastFiles = store.mainLog.files.firstEntry().getValue
 
     store.rollback(v2)
 
-    assert(store.mainLog.lastVersionID == v2)
+    assert(store.mainLog.lastVersionID.get == v2)
     assert(store.shards.firstKey() <= 2)
 
     assert(store.mainLog.files.firstKey() == 2L)
@@ -114,7 +114,7 @@ class LSMStoreTest extends TestWithTempDir {
     val shardFiles3 = allShardFiles(store)
 
     assert(store.mainLog.files.size == 3)
-    assert(store.mainLog.lastVersionID == v3)
+    assert(store.mainLog.lastVersionID.get == v3)
     assert(store.lastShardedLogVersion == 3)
     assert(store.shards.size == 2)
     assert(store.shards.lastKey() == 3)
@@ -124,7 +124,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     store.rollback(v2)
 
-    assert(store.mainLog.lastVersionID == v2)
+    assert(store.mainLog.lastVersionID.get == v2)
     assert(store.shards.lastKey() <= 2)
 
     assert(store.mainLog.files.firstKey() == 2L)
@@ -248,5 +248,9 @@ class LSMStoreTest extends TestWithTempDir {
     store.close()
   }
 
+  @Test def getVersionIDEmpty(): Unit = {
+    val store = new LSMStore(dir = dir)
+    assert(None == store.lastVersionID)
+  }
 
 }

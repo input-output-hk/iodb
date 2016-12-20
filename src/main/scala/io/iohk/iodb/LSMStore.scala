@@ -199,7 +199,7 @@ class LSMStore(
   }
 
 
-  override def lastVersionID: VersionID = {
+  override def lastVersionID: Option[VersionID] = {
     lock.readLock().lock()
     try {
       return mainLog.lastVersionID
@@ -312,8 +312,11 @@ class LSMStore(
     lock.writeLock().lock()
     try {
       val shardLayout = shards.lastEntry().getValue
-      val lastVersion = mainLog.lastVersion
-      val lastVersionId = mainLog.lastVersionID
+      val lastVersion2 = mainLog.lastVersion
+      val lastVersionId2 = mainLog.lastVersionID
+      if (lastVersionId2 == None)
+        return
+      val lastVersionId = lastVersionId2.get
       //buffers which store modified values
       val toRemove = new ArrayBuffer[K]()
       val toUpdate = new ArrayBuffer[(K, V)]()
@@ -408,7 +411,10 @@ class LSMStore(
         return;
 
       val currVersion = log.lastVersion
-      val currVersionID = log.lastVersionID
+      val currVersionID2 = log.lastVersionID
+      if (currVersionID2 == None)
+        return
+      val currVersionID = currVersionID2.get
 
       //load all values
       val buf = log.keyValues(currVersion).toBuffer
