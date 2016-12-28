@@ -21,7 +21,7 @@ import scala.collection.mutable.ArrayBuffer
   * @param keySize            size of key byte array
   * @param backgroundThreads  number of background threads used by compaction
   * @param keepSingleVersion  if true compaction will automatically delete older versions, it will not be possible to use rollback
-  * @param useUnsafe          if true sun.misc.Unsafe file access is used. This is faster, but may cause JVM process to crash
+  * @param fileAccess         method used to read files
   * @param shardEveryVersions compaction will trigger sharding after N versions is added
   * @param minMergeSize       compaction will trigger log merge if combined unmerged data are bigger than this
   * @param minMergeCount      compaction will trigger log merge if there are N unmerged log files
@@ -32,7 +32,7 @@ class LSMStore(
                 keySize: Int = 32,
                 backgroundThreads: Int = 1,
                 val keepSingleVersion: Boolean = false,
-                useUnsafe: Boolean = Utils.unsafeSupported(),
+                implicit val fileAccess: FileAccess = FileAccess.MMAP,
 
                 protected val shardEveryVersions: Int = 3,
 
@@ -69,7 +69,7 @@ class LSMStore(
 
   /** main log, contains all data in non-sharded form. Is never compacted, compaction happens in shards */
   protected[iodb] val mainLog = new LogStore(dir, filePrefix = "log-", keySize = keySize,
-    fileLocks = fileLocks, keepSingleVersion = keepSingleVersion, useUnsafe = useUnsafe)
+    fileLocks = fileLocks, keepSingleVersion = keepSingleVersion)
 
   /** executor used to run background tasks. Threads are set to deamon so JVM process can exit,
     *  while background threads are running */
@@ -479,7 +479,7 @@ class LSMStore(
     try {
       val log = new LogStore(dir = dir, filePrefix = filePrefix,
         keySize = keySize, fileLocks = fileLocks, keepSingleVersion = keepSingleVersion,
-        fileSync = false, useUnsafe = useUnsafe)
+        fileSync = false)
 
       var currShards = shards.get(version);
       if (currShards == null) {

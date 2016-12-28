@@ -8,11 +8,13 @@ import scala.collection.mutable
 
 class LogStoreTest extends TestWithTempDir {
 
+  implicit val fileAccess = FileAccess.MMAP
+
   @Test def binary_search(): Unit = {
-    val store = new LogStore(dir = dir, filePrefix = "store", useUnsafe = false)
+    val store = new LogStore(dir = dir, filePrefix = "store")
 
     val s = new mutable.TreeSet[ByteArrayWrapper]()
-    for (i <- 0 until 1000) {
+    for (i <- 0 until 1) {
       s.add(TestUtils.randomA(size = 32))
     }
     store.update(versionID = TestUtils.fromLong(1),

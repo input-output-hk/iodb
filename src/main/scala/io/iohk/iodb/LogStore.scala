@@ -1,16 +1,11 @@
 package io.iohk.iodb
 
 import java.io._
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
-import java.nio.channels.FileChannel.MapMode
-import java.nio.file.StandardOpenOption
 import java.util.Comparator
 import java.util.concurrent.ConcurrentSkipListMap
 
 import com.google.common.collect.Iterators
 import io.iohk.iodb.Store.VersionID
-import io.iohk.iodb.Utils._
 
 import scala.collection.JavaConverters._
 
@@ -33,18 +28,7 @@ object LogStore {
       8 + //version
       4 //version size
 
-  /**
-    * Memory maps file into read-only ByteBuffer. File must be smaller than 2GB due to addressing limit.
-    *
-    * @param file to be mapped
-    * @return ByteByffer of memory mapped file
-    */
-  def mmap(file: File): ByteBuffer = {
-    val c = FileChannel.open(file.toPath, StandardOpenOption.READ)
-    val ret = c.map(MapMode.READ_ONLY, 0, file.length())
-    c.close()
-    ret
-  }
+
 
   def fileDelete(f: File): Unit = {
     assert(f.exists())
@@ -66,6 +50,8 @@ object LogStore {
     new File(dir, filePrefix + version + (if (isMerged) mergedExt else logExt))
   }
 
+  protected[iodb] val tombstone = ByteArrayWrapper(new Array[Byte](0))
+
 }
 
 /**
@@ -77,8 +63,8 @@ class LogStore(
                 val keySize: Int = 32,
                 protected val fileLocks: MultiLock[File] = new MultiLock[File](),
                 val keepSingleVersion: Boolean = false,
-                val fileSync: Boolean = true,
-                useUnsafe: Boolean = unsafeSupported()
+                val fileSync: Boolean = true)(
+                implicit val fileAccess: FileAccess
               ) {
 
   import LogStore._
@@ -146,35 +132,10 @@ class LogStore(
 
   private val keySizeExtra: Long = keySize + 4 + 8
 
-  private val tombstone = ByteArrayWrapper(new Array[Byte](0))
-
-
   /** iterates over all values in single version. Null value is tombstone. */
   protected[iodb] def versionIterator(version: Long): Iterator[(K, V)] = {
     val logFile = files.get(version)
-    val buf = logFile.buf.duplicate()
-    val valueBuf = buf.duplicate()
-    buf.position(logFile.baseKeyOffset.toInt)
-
-    val count = buf.getInt(keyCountOffset)
-    (0 until count).map { i =>
-      val key = new Array[Byte](keySize)
-      buf.get(key)
-
-      //load value
-      val valueSize = buf.getInt()
-      val valueOffset = buf.getLong
-      val value =
-        if (valueSize == -1) null
-        else {
-          //TODO seek should not be necessary here
-          valueBuf.position(valueOffset.toInt)
-          val value = new Array[Byte](valueSize)
-          valueBuf.get(value)
-          ByteArrayWrapper(value)
-        }
-      ByteArrayWrapper(key) -> value
-    }.iterator
+    return fileAccess.readKeyValues(logFile.fileHandle, baseKeyOffset = logFile.baseKeyOffset, keySize = keySize)
   }
 
   def versions: Iterable[Long] = files.keySet().asScala
@@ -243,55 +204,7 @@ class LogStore(
   }
 
   protected def versionGet(logFile: LogFile, key: K): V = {
-    val buf = logFile.buf.duplicate()
-
-    def loadValue(): V = {
-      //key found, load value
-      val valueSize = buf.getInt()
-      if (valueSize == -1)
-        return tombstone //tombstone, return nothing
-
-      //load value
-      val valueOffset = buf.getLong()
-      buf.position(valueOffset.toInt)
-      val ret = new Array[Byte](valueSize)
-      buf.get(ret)
-      ByteArrayWrapper(ret)
-    }
-
-    if (useUnsafe) {
-      val r = Utils.unsafeBinarySearch(logFile.buf, key.data, logFile.baseKeyOffset.toInt)
-      if (r < 0)
-        return null
-      val keyOffset = logFile.baseKeyOffset + r * keySizeExtra
-      //load key
-      buf.position(keyOffset.toInt + keySize)
-      return loadValue
-    }
-
-    val key2 = new Array[Byte](keySize)
-    val keyCount: Long = buf.getInt(keyCountOffset)
-    var lo: Long = 0
-    var hi: Long = keyCount - 1
-
-    while (lo <= hi) {
-
-      //split interval
-      val mid = (lo + hi) / 2
-      val keyOffset = logFile.baseKeyOffset + mid * keySizeExtra
-      //load key
-
-      buf.position(keyOffset.toInt)
-      buf.get(key2)
-      //compare keys and split intervals if not equal
-      val comp = Utils.BYTE_ARRAY_COMPARATOR.compare(key2, key.data)
-      if (comp < 0) lo = mid + 1
-      else if (comp > 0) hi = mid - 1
-      else {
-        return loadValue()
-      }
-    }
-    null
+    return fileAccess.getValue(logFile.fileHandle, key, keySize = keySize, baseKeyOffset = logFile.baseKeyOffset)
   }
 
 
@@ -453,7 +366,7 @@ class LogStore(
     files.asScala.values.find { log =>
       if (!log.isMerged) {
         count += 1
-        size += log.buf.limit()
+        size += fileAccess.fileSize(log.fileHandle)
       }
       log.isMerged
     }
@@ -514,7 +427,9 @@ case class LogFile(
                     versionIDLength: Int,
                     isMerged: Boolean,
                     dir: File,
-                    filePrefix: String) {
+                    filePrefix: String)(
+                    implicit fileAccess: FileAccess
+                  ) {
 
   import LogStore._
 
@@ -524,24 +439,19 @@ case class LogFile(
 
   def loadVersionID: VersionID = {
     val w = new ByteArrayWrapper(versionIDLength)
-    val buf2 = buf.duplicate()
-    buf2.position(LogStore.headerSizeWithoutVersionID)
-    buf2.get(w.data)
+    fileAccess.readData(fileHandle, LogStore.headerSizeWithoutVersionID, w.data)
     return w;
   }
 
-  val buf = mmap(logFile)
-
-  var unmapped = false;
+  val fileHandle: Any = fileAccess.open(logFile.getPath)
 
   def deleteFiles(): Unit = {
-    unmapped = true
-    Utils.unmap(buf)
+    fileAccess.close(fileHandle)
     fileDelete(logFile)
   }
 
   def close(): Unit = {
-    Utils.unmap(buf)
+    fileAccess.close(fileHandle)
   }
 
 
