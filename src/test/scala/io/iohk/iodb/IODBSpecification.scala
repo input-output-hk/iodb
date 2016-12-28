@@ -1,12 +1,9 @@
 package io.iohk.iodb
 
-import java.io.File
 import java.security.MessageDigest
 
 import org.scalatest.prop.{GeneratorDrivenPropertyChecks, PropertyChecks}
 import org.scalatest.{Matchers, PropSpec}
-
-import scala.util.Random
 
 class IODBSpecification extends PropSpec
   with PropertyChecks
@@ -15,7 +12,7 @@ class IODBSpecification extends PropSpec
 
 
   property("writeKey test") {
-    val iFile = new File(s"/tmp/scorex/scorextest-${Random.nextInt(10000000)}")
+    val iFile = TestUtils.tempDir()
     iFile.mkdirs()
     val blocksStorage = new LSMStore(iFile)
     var ids: Seq[ByteArrayWrapper] = Seq()
@@ -38,6 +35,7 @@ class IODBSpecification extends PropSpec
         case Some(v) =>
       }
     }
+    TestUtils.deleteRecur(iFile)
   }
 
 }
