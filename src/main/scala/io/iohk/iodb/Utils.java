@@ -3,9 +3,12 @@ package io.iohk.iodb;
 import sun.misc.Cleaner;
 import sun.nio.ch.DirectBuffer;
 
+import java.io.EOFException;
 import java.io.File;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.util.Comparator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -174,5 +177,17 @@ class Utils {
 
     protected static File[] listFiles(File dir, String extension) {
         return dir.listFiles(pathname -> pathname.isFile() && pathname.getName().endsWith("." + extension));
+    }
+
+
+    static void readFully(FileChannel channel, long offset, ByteBuffer buf) throws IOException {
+        int remaining = buf.limit() - buf.position();
+
+        while (remaining > 0) {
+            int read = channel.read(buf, offset);
+            if (read < 0)
+                throw new EOFException();
+            remaining -= read;
+        }
     }
 }

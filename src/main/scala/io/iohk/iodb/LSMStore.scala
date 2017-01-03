@@ -32,7 +32,7 @@ class LSMStore(
                 keySize: Int = 32,
                 backgroundThreads: Int = 1,
                 val keepSingleVersion: Boolean = false,
-                implicit val fileAccess: FileAccess = FileAccess.MMAP,
+                implicit val fileAccess: FileAccess = FileAccess.SAFE,
 
                 protected val shardEveryVersions: Int = 3,
 

@@ -93,15 +93,19 @@ class LogStore(
 
   def loadVersionIDLength(f: File): Int = {
     val raf = new RandomAccessFile(f, "r")
-    raf.seek(headerSizeWithoutVersionID - 4)
-    val ret = raf.readInt()
-    raf.close()
-    return ret;
+    try {
+      raf.seek(headerSizeWithoutVersionID - 4)
+      return raf.readInt()
+    } finally {
+      raf.close()
+    }
   }
 
   {
 
-    val files2 = dir.listFiles()
+    val filesX = dir.listFiles()
+
+    val files2 = (if (filesX != null) filesX else new Array[File](0))
       .filter(f => f.getName.startsWith(filePrefix) && f.isFile)
       .map(_.getName().substring(filePrefix.length))
       .filter { f =>

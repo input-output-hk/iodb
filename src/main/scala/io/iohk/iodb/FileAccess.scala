@@ -1,10 +1,10 @@
 package io.iohk.iodb
 
 import java.io.File
-import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.FileChannel.MapMode
 import java.nio.file.StandardOpenOption
+import java.nio.{ByteBuffer, MappedByteBuffer}
 
 import io.iohk.iodb.Store._
 import io.iohk.iodb.Utils.keyCountOffset
@@ -63,19 +63,30 @@ sealed abstract class FileAccess {
   def close(file: Any)
 
 
+
 }
 
 object FileAccess {
 
-  /** use memory mapped files */
-  object MMAP extends FileAccess {
+  abstract class ByteBufferFileAccess extends FileAccess {
+
+    /** casts parameter to MappedByteBuffer */
+    protected[iodb] def cast(fileHandle: Any) = fileHandle.asInstanceOf[MappedByteBuffer]
 
     override def open(fileName: String): MappedByteBuffer = mmap(fileName)
 
 
     override def close(file: Any): Unit = {
-      Utils.unmap(buf(file))
+      Utils.unmap(cast(file))
     }
+
+    /**
+      * gets file size of given file
+      *
+      * @param fileHandle for opened file
+      * @return file size
+      */
+    override def fileSize(fileHandle: Any): Long = cast(fileHandle).limit()
 
     /**
       * Reads data from given offset
@@ -85,7 +96,7 @@ object FileAccess {
       * @param data
       */
     override def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit = {
-      val buf2 = buf(fileHandle).duplicate()
+      val buf2 = cast(fileHandle).duplicate()
       buf2.position(LogStore.headerSizeWithoutVersionID)
       buf2.get(data)
     }
@@ -97,7 +108,7 @@ object FileAccess {
       * @return iterator over key-value pairs
       */
     override def readKeyValues(fileHandle: Any, baseKeyOffset: Long, keySize: Int): Iterator[(K, V)] = {
-      val buf = FileAccess.buf(fileHandle).duplicate()
+      val buf = cast(fileHandle).duplicate()
       val valueBuf = buf.duplicate()
       buf.position(baseKeyOffset.toInt)
 
@@ -122,17 +133,15 @@ object FileAccess {
       }.iterator
     }
 
-    /**
-      * gets file size of given file
-      *
-      * @param fileHandle for opened file
-      * @return file size
-      */
-    override def fileSize(fileHandle: Any): Long = buf(fileHandle).limit()
+  }
+
+  /** use memory mapped files, fast but can cause problem on Windows.  */
+  object MMAP extends ByteBufferFileAccess {
+
 
     override def getValue(fileHandle: Any, key: K, keySize: Int, baseKeyOffset: Long): V = {
 
-      val buf = FileAccess.buf(fileHandle).duplicate()
+      val buf = cast(fileHandle).duplicate()
 
       def loadValue(): V = {
         //key found, load value
@@ -149,15 +158,6 @@ object FileAccess {
       }
 
       val keySizeExtra = keySize + 4 + 8
-      //    if (useUnsafe) {
-      //      val r = Utils.unsafeBinarySearch(logFile.buf, key.data, logFile.baseKeyOffset.toInt)
-      //      if (r < 0)
-      //        return null
-      //      val keyOffset = logFile.baseKeyOffset + r * keySizeExtra
-      //      //load key
-      //      buf.position(keyOffset.toInt + keySize)
-      //      return loadValue
-      //    }
 
       val key2 = new Array[Byte](keySize)
       val keyCount: Long = buf.getInt(keyCountOffset)
@@ -185,6 +185,195 @@ object FileAccess {
     }
   }
 
+
+  /** Use `sun.misc.Unsafe` with direct memory access. Very fast, but can cause JVM  and has problems on 32bit systems and Windows. */
+  object UNSAFE extends ByteBufferFileAccess {
+    override def getValue(fileHandle: Any, key: K, keySize: Int, baseKeyOffset: Long): V = {
+
+      val buf = cast(fileHandle).duplicate()
+
+      def loadValue(): V = {
+        //key found, load value
+        val valueSize = buf.getInt()
+        if (valueSize == -1)
+          return LogStore.tombstone //tombstone, return nothing
+
+        //load value
+        val valueOffset = buf.getLong()
+        buf.position(valueOffset.toInt)
+        val ret = new Array[Byte](valueSize)
+        buf.get(ret)
+        ByteArrayWrapper(ret)
+      }
+
+      val keySizeExtra = keySize + 4 + 8
+      val r = Utils.unsafeBinarySearch(buf, key.data, baseKeyOffset.toInt)
+      if (r < 0)
+        return null
+      val keyOffset = baseKeyOffset + r * keySizeExtra
+      //load key
+      buf.position(keyOffset.toInt + keySize)
+      return loadValue
+    }
+
+  }
+
+  /**
+    * Use `FileChannel` to access files. Slower, but safer. Keeps many file handles open,
+    * and might cause crash if 'maximal number of open files per process' is exceed.
+    */
+  object FILE_CHANNEL extends FileAccess {
+
+    protected def cast(fileHandle: Any) = fileHandle.asInstanceOf[FileChannel]
+
+    override def getValue(fileHandle: Any, key: K, keySize: Int, baseKeyOffset: Long): V = {
+      val c = cast(fileHandle)
+      val tempBuf = ByteBuffer.allocate(8)
+
+      val keySizeExtra = keySize + 4 + 8
+
+      val key2 = new Array[Byte](keySize)
+      val key2B = ByteBuffer.wrap(key2)
+      val keyCount: Long = readInt(c, keyCountOffset, tempBuf)
+      var lo: Long = 0
+      var hi: Long = keyCount - 1
+
+      while (lo <= hi) {
+
+        //split interval
+        val mid = (lo + hi) / 2
+        val keyOffset = baseKeyOffset + mid * keySizeExtra
+        //load key
+        key2B.clear()
+        Utils.readFully(c, keyOffset, key2B)
+        //compare keys and split intervals if not equal
+        val comp = Utils.BYTE_ARRAY_COMPARATOR.compare(key2, key.data)
+        if (comp < 0) lo = mid + 1
+        else if (comp > 0) hi = mid - 1
+        else {
+          //key found, load value
+          val valueSize = readInt(c, keyOffset + keySize, tempBuf)
+          if (valueSize == -1)
+            return LogStore.tombstone //tombstone, return nothing
+
+          //load value
+          val valueOffset = readLong(c, keyOffset + keySize + 4, tempBuf)
+          val ret = new Array[Byte](valueSize)
+          val ret2 = ByteBuffer.wrap(ret)
+          Utils.readFully(c, valueOffset, ret2)
+          return ByteArrayWrapper(ret)
+        }
+      }
+      null
+    }
+
+    protected def readLong(c: FileChannel, offset: Long, buf: ByteBuffer = ByteBuffer.allocate(8)): Long = {
+      buf.clear();
+      buf.limit(8)
+      Utils.readFully(c, offset, buf)
+      return buf.getLong(0)
+    }
+
+
+    protected def readInt(c: FileChannel, offset: Long, buf: ByteBuffer = ByteBuffer.allocate(4)): Int = {
+      buf.position(0);
+      buf.limit(4)
+      Utils.readFully(c, offset, buf)
+      return buf.getInt(0)
+    }
+
+    override def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit = {
+      val c = cast(fileHandle)
+      val b = ByteBuffer.wrap(data)
+      c.position(offset)
+      Utils.readFully(c, offset, b)
+    }
+
+    override def readKeyValues(fileHandle: Any, baseKeyOffset: Long, keySize: Int): Iterator[(K, V)] = {
+      val c = cast(fileHandle)
+      var keyPos = baseKeyOffset
+      val tempBuf = ByteBuffer.allocate(8)
+
+      val count = readInt(c, keyCountOffset, tempBuf)
+      (0 until count).map { i =>
+        val key = new Array[Byte](keySize)
+        val keyB = ByteBuffer.wrap(key)
+        Utils.readFully(c, keyPos, keyB)
+        keyPos += keySize
+
+        //load value
+        val valueSize = readInt(c, keyPos, tempBuf)
+        keyPos += 4
+        val valueOffset = readLong(c, keyPos, tempBuf)
+        keyPos += 8
+        val value =
+          if (valueSize == -1) null
+          else {
+            val ret = new Array[Byte](valueSize)
+            val ret2 = ByteBuffer.wrap(ret)
+            Utils.readFully(c, valueOffset, ret2)
+            ByteArrayWrapper(ret)
+          }
+        ByteArrayWrapper(key) -> value
+      }.iterator
+    }
+
+    override def open(fileName: String): Any = {
+      FileChannel.open(new File(fileName).toPath, StandardOpenOption.READ)
+    }
+
+    override def fileSize(fileHandle: Any): Long = cast(fileHandle).size()
+
+    override def close(file: Any): Unit = cast(file).close()
+  }
+
+  /**
+    * Use `FileChannel` to access files, no file handles are kept open.
+    * Slower and safer.
+    */
+
+  object SAFE extends FileAccess {
+
+    protected def cast(fileHandle: Any) = fileHandle.asInstanceOf[File]
+
+    protected def open2(fileHandle: Any) = FileChannel.open(cast(fileHandle).toPath, StandardOpenOption.READ)
+
+    override def getValue(fileHandle: Any, key: K, keySize: Int, baseKeyOffset: Long): V = {
+      val c = open2(fileHandle)
+      try {
+        return FILE_CHANNEL.getValue(fileHandle = c, key = key, keySize = keySize, baseKeyOffset = baseKeyOffset)
+      } finally {
+        c.close()
+      }
+    }
+
+    override def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit = {
+      val c = open2(fileHandle)
+      try {
+        FILE_CHANNEL.readData(fileHandle = c, offset = offset, data = data)
+      } finally {
+        c.close()
+      }
+    }
+
+    override def readKeyValues(fileHandle: Any, baseKeyOffset: Long, keySize: Int): Iterator[(K, V)] = {
+      val c = open2(fileHandle)
+      try {
+        return FILE_CHANNEL.readKeyValues(fileHandle = c, baseKeyOffset = baseKeyOffset, keySize = keySize).toBuffer.iterator
+      } finally {
+        c.close()
+      }
+    }
+
+    override def fileSize(fileHandle: Any): Long = cast(fileHandle).length()
+
+    override def open(fileName: String): Any = new File(fileName)
+
+    override def close(file: Any): Unit = {
+      //nothing to do, java.io.File consumes no system resources
+    }
+  }
+
   /**
     * Memory maps file into read-only ByteBuffer. File must be smaller than 2GB due to addressing limit.
     *
@@ -199,6 +388,5 @@ object FileAccess {
     ret
   }
 
-  protected def buf(fileHandle: Any) = fileHandle.asInstanceOf[MappedByteBuffer]
 
 }
