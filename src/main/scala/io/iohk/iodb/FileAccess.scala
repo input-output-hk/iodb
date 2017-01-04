@@ -378,7 +378,7 @@ object FileAccess {
     * Memory maps file into read-only ByteBuffer. File must be smaller than 2GB due to addressing limit.
     *
     * @param fileName to be mapped
-    * @return ByteByffer of memory mapped file
+    * @return ByteBuffer of memory mapped file
     */
   protected def mmap(fileName: String): MappedByteBuffer = {
     val file = new File(fileName)
