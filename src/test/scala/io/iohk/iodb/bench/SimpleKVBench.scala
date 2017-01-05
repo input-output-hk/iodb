@@ -27,11 +27,13 @@ object SimpleKVBench extends Benchmark{
       //      splitSize = 16*1024,
       keepSingleVersion = true
     ), dir)
+    TestUtils.deleteRecur(dir)
     printlnResult(lb)
 
     dir = TestUtils.tempDir()
     val rb = bench(new RocksStore(dir), dir)
     printlnResult(rb)
+    TestUtils.deleteRecur(dir)
 
     printf("Commit count: %,d \n", updates)
     printf("Keys per update: %,d \n", keyCount)
