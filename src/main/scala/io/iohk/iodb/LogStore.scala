@@ -142,20 +142,19 @@ class LogStore(
     return fileAccess.readKeyValues(logFile.fileHandle, baseKeyOffset = logFile.baseKeyOffset, keySize = keySize)
   }
 
+  // compares result of iterators,
+  // Second tuple val is Version, is descending so we get only newest version
+  private object comparator extends Comparator[(K, Long, V)] {
+    def compare(o1: (K, Long, V),
+                o2: (K, Long, V)): Int = {
+      val c = o1._1.compareTo(o2._1)
+      if (c != 0) c else -o1._2.compareTo(o2._2)
+    }
+  }
+
   def versions: Iterable[Long] = files.keySet().asScala
 
   def keyValues(fromVersion: Long, toVersion: Long = Long.MinValue): Iterable[(K, V)] = {
-
-    // compares result of iterators,
-    // Second tuple val is Version, is descending so we get only newest version
-    object comparator extends Comparator[(K, Long, V)] {
-      def compare(o1: (K, Long, V),
-                  o2: (K, Long, V)): Int = {
-        val c = o1._1.compareTo(o2._1)
-        if (c != 0) c else -o1._2.compareTo(o2._2)
-      }
-    }
-
     val versions = files.subMap(fromVersion, true, toVersion, false).keySet().asScala
     // iterator of iterators over all files
     val iters: java.lang.Iterable[java.util.Iterator[(K, Long, V)]] = versions.map { version =>
