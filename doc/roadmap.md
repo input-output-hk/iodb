@@ -13,11 +13,18 @@ Roadmap
 - Short tutorial with examples
 
 ### 0.2 release 
-- Expected mid-November 2016
-- IODB will implement BitcoinJ backend
-- Option to force  latest version of data into offheap cache ([Issue #1](https://github.com/input-output-hk/iodb/issues/1))
+- Expected mid-January 2017
+- [List of issues](https://github.com/input-output-hk/iodb/milestone/1)
+- This milestone replaces Main Log with Journal and Shards. 
+- Redesign storage format to 
+  - solve scalability issue
+  - reduce memory overhead
+  - number of open file handles (that might cause JVM crash)
 
-
-### Open questions
+### 0.3 release 
+- Expected late-January 2017
+- [List of issues](https://github.com/input-output-hk/iodb/milestone/2)
+- This release integrates stress testing and crash tests, to verify data survive fatal system failure
+- Improves concurrency, fine grained locking, parallel compaction
 
 
