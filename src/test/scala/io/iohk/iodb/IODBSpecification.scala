@@ -19,7 +19,7 @@ class IODBSpecification extends PropSpec
     var i = 0
 
     forAll { (key: String, value: Array[Byte]) =>
-      val id: ByteArrayWrapper = ByteArrayWrapper(MessageDigest.getInstance("SHA-256").digest((i + key).getBytes))
+      val id: ByteArrayWrapper = hash(i + key)
       val fValue: ByteArrayWrapper = ByteArrayWrapper(value)
       ids = id +: ids
       i = i + 1
@@ -29,13 +29,26 @@ class IODBSpecification extends PropSpec
         Seq(),
         Seq(id -> fValue))
     }
+    //old keys are defined
     ids.foreach { id =>
       blocksStorage.get(id) match {
         case None => throw new Error(s"Id $id} not found")
         case Some(v) =>
       }
     }
+    //removed keys are defined not defined
+    val toRemove = ids.take(5)
+    blocksStorage.update(hash("removing"), toRemove, Seq())
+    toRemove.foreach { id =>
+      blocksStorage.get(id) match {
+        case None =>
+        case Some(v) => throw new Error(s"Id $id} is defined after delete")
+      }
+    }
+
     TestUtils.deleteRecur(iFile)
   }
 
+
+  def hash(s: String) = ByteArrayWrapper(MessageDigest.getInstance("SHA-256").digest(s.getBytes))
 }
