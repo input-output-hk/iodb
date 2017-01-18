@@ -201,9 +201,9 @@ class LogStore(
       if (ret != null)
         return Some(ret) // value was found
       if (logFile.isMerged)
-        return None //contains all versions, will not be found in next versions
+        return null //contains all versions, will not be found in next versions
     }
-    None
+    null
   }
 
   protected def versionGet(logFile: LogFile, key: K): V = {

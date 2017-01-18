@@ -168,11 +168,13 @@ class LSMStore(
       if (mainLogVersion != shardVersion) {
         //some entries were not sharded yet, try main log
         val ret = mainLog.get(key = key, versionId = mainLogVersion, stopAtVersion = shardVersion)
-        if (ret != None)
+        if (ret != null) {
           return ret
+        }
       }
 
-      return shard.get(key)
+      val ret = shard.get(key)
+      return if (ret == null) None else ret
     } finally {
       lock.readLock().unlock()
     }
