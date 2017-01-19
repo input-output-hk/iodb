@@ -3,32 +3,45 @@ package io.iohk.iodb
 import java.security.MessageDigest
 
 import org.scalatest.prop.{GeneratorDrivenPropertyChecks, PropertyChecks}
-import org.scalatest.{Matchers, PropSpec}
+import org.scalatest.{BeforeAndAfterAll, Matchers, PropSpec}
+
+import scala.util.Random
 
 class IODBSpecification extends PropSpec
   with PropertyChecks
   with GeneratorDrivenPropertyChecks
-  with Matchers {
+  with Matchers
+  with BeforeAndAfterAll {
+
+  val iFile = TestUtils.tempDir()
+  iFile.mkdirs()
 
 
   property("writeKey test") {
-    val iFile = TestUtils.tempDir()
-    iFile.mkdirs()
     val blocksStorage = new LSMStore(iFile)
     var ids: Seq[ByteArrayWrapper] = Seq()
+    var removed: Seq[ByteArrayWrapper] = Seq()
     var i = 0
 
-    forAll { (key: String, value: Array[Byte]) =>
+    forAll { (key: String, value: Array[Byte], removing: Boolean) =>
+      val toRemove = if (removing && ids.nonEmpty) Seq(ids(Random.nextInt(ids.length))) else Seq()
+      toRemove.foreach { tr =>
+        ids = ids.filter(i => i != tr)
+        removed = tr +: removed
+      }
+
       val id: ByteArrayWrapper = hash(i + key)
       val fValue: ByteArrayWrapper = ByteArrayWrapper(value)
       ids = id +: ids
       i = i + 1
 
+//      println(s"remove $toRemove, add ${Seq(id -> fValue)}")
       blocksStorage.update(
         id,
-        Seq(),
+        toRemove,
         Seq(id -> fValue))
     }
+
     //old keys are defined
     ids.foreach { id =>
       blocksStorage.get(id) match {
@@ -36,18 +49,19 @@ class IODBSpecification extends PropSpec
         case Some(v) =>
       }
     }
+
     //removed keys are defined not defined
-    val toRemove = ids.take(5)
-    blocksStorage.update(hash("removing"), toRemove, Seq())
-    toRemove.foreach { id =>
+    removed.foreach { id =>
       blocksStorage.get(id) match {
         case None =>
         case Some(v) => throw new Error(s"Id $id} is defined after delete")
       }
     }
 
-    TestUtils.deleteRecur(iFile)
   }
+
+
+  override protected def afterAll(): Unit = TestUtils.deleteRecur(iFile)
 
 
   def hash(s: String) = ByteArrayWrapper(MessageDigest.getInstance("SHA-256").digest(s.getBytes))
