@@ -6,15 +6,15 @@ name := "iodb"
 
 version := "0.1.2-SNAPSHOT"
 
-scalaVersion := "2.11.8"
+scalaVersion := "2.12.1"
 
 libraryDependencies ++= Seq(
   "org.mapdb" % "mapdb" % "3.0.1",
   "com.google.guava" % "guava" % "19.0",
-  "org.consensusresearch" %% "scrypto" % "1.2.0-RC3",
-  "org.scalatest" %% "scalatest" % "2.+" % "test",
-  "org.scalactic" %% "scalactic" % "2.+" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.12.+" % "test",
+  "org.scorexfoundation" %% "scrypto" % "1.2.0",
+  "org.scalatest" %% "scalatest" % "3.+" % "test",
+  "org.scalactic" %% "scalactic" % "3.+" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.13.+" % "test",
   "com.novocode" % "junit-interface" % "0.11" % "test",
   "org.rocksdb" % "rocksdbjni" % "4.5.1" % "test",
   "org.slf4j" % "slf4j-api" % "1.+",
