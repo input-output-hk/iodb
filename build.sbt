@@ -9,7 +9,6 @@ version := "0.1.2-SNAPSHOT"
 scalaVersion := "2.12.1"
 
 libraryDependencies ++= Seq(
-  "org.mapdb" % "mapdb" % "3.0.1",
   "com.google.guava" % "guava" % "19.0",
   "org.scorexfoundation" %% "scrypto" % "1.2.0",
   "org.scalatest" %% "scalatest" % "3.+" % "test",

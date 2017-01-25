@@ -9,16 +9,7 @@ dependencyOverrides in ThisBuild ++= Set(
   "com.novocode" % "junit-interface" % "0.11",
   "jline" % "jline" % "2.14.1",
   "junit" % "junit" % "4.11",
-  "net.jcip" % "jcip-annotations" % "1.0",
-  "net.jpountz.lz4" % "lz4" % "1.3.0",
-  "org.eclipse.collections" % "eclipse-collections" % "7.1.0",
-  "org.eclipse.collections" % "eclipse-collections-api" % "7.1.0",
-  "org.eclipse.collections" % "eclipse-collections-forkjoin" % "7.1.0",
   "org.hamcrest" % "hamcrest-core" % "1.3",
-  "org.jetbrains.kotlin" % "kotlin-runtime" % "1.0.2",
-  "org.jetbrains.kotlin" % "kotlin-stdlib" % "1.0.2",
-  "org.mapdb" % "elsa" % "3.0.0-M5",
-  "org.mapdb" % "mapdb" % "3.0.1",
   "org.rocksdb" % "rocksdbjni" % "4.5.1",
   "org.scala-lang.modules" % "scala-parser-combinators_2.12" % "1.0.4",
   "org.scala-lang.modules" % "scala-xml_2.12" % "1.0.6",
@@ -31,4 +22,4 @@ dependencyOverrides in ThisBuild ++= Set(
   "org.typelevel" % "macro-compat_2.12" % "1.1.1",
   "org.whispersystems" % "curve25519-java" % "0.3.0"
 )
-// LIBRARY_DEPENDENCIES_HASH 6db3c65fca4cd6883126baa58b656f6d1008f07f
+// LIBRARY_DEPENDENCIES_HASH f7b71dfcbc4f69c8cfd521eba854374de8ebd9da
