@@ -1,6 +1,7 @@
-package io.iohk.iodb
+package io.iohk.iodb.unit
 
 import io.iohk.iodb.TestUtils._
+import io.iohk.iodb.{FileAccess, LogStore, TestWithTempDir}
 import org.junit.Test
 
 abstract class FileAccessTest extends TestWithTempDir {

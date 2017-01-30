@@ -1,4 +1,4 @@
-package io.iohk.iodb
+package io.iohk.iodb.unit
 
 //todo: implement
 class IndexFileTest {

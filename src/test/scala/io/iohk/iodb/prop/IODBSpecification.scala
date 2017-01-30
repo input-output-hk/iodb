@@ -1,7 +1,8 @@
-package io.iohk.iodb
+package io.iohk.iodb.prop
 
 import java.security.MessageDigest
 
+import io.iohk.iodb.{ByteArrayWrapper, LSMStore, TestUtils}
 import org.scalatest.prop.{GeneratorDrivenPropertyChecks, PropertyChecks}
 import org.scalatest.{BeforeAndAfterAll, Matchers, PropSpec}
 

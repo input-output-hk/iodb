@@ -1,12 +1,12 @@
-package io.iohk.iodb
+package io.iohk.iodb.unit
 
 import java.io.File
 
+import io.iohk.iodb._
 import org.junit.Test
 
 abstract class StoreTest extends TestWithTempDir {
-
-
+  
   val v1 = TestUtils.fromLong(1L)
   val v2 = TestUtils.fromLong(2L)
   val v3 = TestUtils.fromLong(3L)
@@ -24,7 +24,7 @@ abstract class StoreTest extends TestWithTempDir {
     TestUtils.randomA()
   }
 
-  def countFiles() = dir.listFiles().filter(!_.getName.endsWith(Utils.shardInfoFileExt)).length
+  def countFiles() = dir.listFiles().count(!_.getName.endsWith(TestUtils.shardInfoFileExt))
 
   @Test def put_get_delete_rollback() {
     val store = makeStore(dir)
@@ -67,7 +67,7 @@ abstract class StoreTest extends TestWithTempDir {
   }
 
   @Test def null_update() {
-    var store = makeStore(dir)
+    val store = makeStore(dir)
     store.update(v1, List.empty, List((a(0), a(1))))
 
     assert(v1 === store.lastVersionID.get)
@@ -86,7 +86,7 @@ abstract class StoreTest extends TestWithTempDir {
   }
 
   @Test def wrong_key_size() {
-    var store = makeStore(dir)
+    val store = makeStore(dir)
     store.update(v1, List.empty, List((a(0), a(1))))
 
     assert(v1 === store.lastVersionID.get)

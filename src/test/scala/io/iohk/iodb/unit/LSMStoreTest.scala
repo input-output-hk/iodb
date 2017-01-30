@@ -1,8 +1,9 @@
-package io.iohk.iodb
+package io.iohk.iodb.unit
 
 import java.io.File
 
 import io.iohk.iodb.TestUtils.fromLong
+import io.iohk.iodb._
 import org.junit.Test
 
 import scala.collection.JavaConverters._
@@ -208,7 +209,7 @@ class LSMStoreTest extends TestWithTempDir {
       minMergeCount = 1,
       shardEveryVersions = 1)
 
-    def files = Utils.listFiles(dir, Utils.shardInfoFileExt)
+    def files = TestUtils.listFiles(dir, TestUtils.shardInfoFileExt)
     assert(files.size == 1)
 
     val initShardInfoFile = files(0)

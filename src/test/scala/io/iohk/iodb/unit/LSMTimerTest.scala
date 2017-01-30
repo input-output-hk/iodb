@@ -1,5 +1,6 @@
-package io.iohk.iodb
+package io.iohk.iodb.unit
 
+import io.iohk.iodb.{LSMStore, TestUtils, TestWithTempDir}
 import org.junit.Test
 
 class LSMTimerTest extends TestWithTempDir {

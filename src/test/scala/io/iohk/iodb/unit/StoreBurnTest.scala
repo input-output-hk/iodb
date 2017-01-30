@@ -1,5 +1,6 @@
-package io.iohk.iodb
+package io.iohk.iodb.unit
 
+import io.iohk.iodb._
 import org.junit._
 
 /**

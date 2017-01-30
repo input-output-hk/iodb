@@ -1,7 +1,8 @@
-package io.iohk.iodb
+package io.iohk.iodb.unit
 
 import java.util
 
+import io.iohk.iodb._
 import org.junit.Test
 
 import scala.collection.mutable
