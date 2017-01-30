@@ -10,6 +10,7 @@ import scala.util.Random
   */
 object TestUtils {
 
+
   def dirSize(dir: File): Long = dir.listFiles().map(_.length()).sum
 
   def tempDir(): File = {
