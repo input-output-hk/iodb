@@ -22,7 +22,7 @@ class LogStoreTest extends TestWithTempDir {
       Seq.empty, s.map { a => (a, a) })
 
     for (a <- s) {
-      assert(Some(a) == store.get(a))
+      assert(store.get(a).contains(a))
     }
     store.close()
   }
@@ -53,7 +53,7 @@ class LogStoreTest extends TestWithTempDir {
     def checkExists(version: Long) = {
       for (i <- 1L until 100) {
         val b = TestUtils.fromLong(i)
-        assert(Some(b) == store.get(b))
+        assert(store.get(b).contains(b))
 
         assert((i == version) == LogStore.logFile(i, dir = dir, filePrefix = filePrefix, isMerged = true).exists())
         assert((i > version) == LogStore.logFile(i, dir = dir, filePrefix = filePrefix).exists())
@@ -82,7 +82,7 @@ class LogStoreTest extends TestWithTempDir {
     var store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)
 
     val c = 100
-    for (version <- (1 until c)) {
+    for (version <- 1 until c) {
       val toUpdate = (version * c until version * c + c).map(k => (TestUtils.fromLong(k), TestUtils.fromLong(k)))
       store.update(TestUtils.fromLong(version), version, Nil, toUpdate)
 
@@ -100,10 +100,10 @@ class LogStoreTest extends TestWithTempDir {
   }
 
   @Test def versionIterator(): Unit = {
-    var store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)
+    val store = new LogStore(dir = dir, filePrefix = "store", keySize = 8)
 
     val c = 100
-    for (version <- (1 to c)) {
+    for (version <- 1 to c) {
       val toUpdate = (version * c until version * c + c).map(k => (TestUtils.fromLong(k), TestUtils.fromLong(k)))
       store.update(TestUtils.fromLong(version), version, Nil, toUpdate)
     }
@@ -111,7 +111,7 @@ class LogStoreTest extends TestWithTempDir {
     val data = store.versionIterator(c).toSet
     println(data.size)
 
-    for (version <- (1 to c)) {
+    for (version <- 1 to c) {
       (version * c until version * c + c).map(k => (TestUtils.fromLong(k), TestUtils.fromLong(k))).foreach(data.contains(_))
     }
     store.close()
