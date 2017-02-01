@@ -4,6 +4,7 @@ import java.io.Serializable
 import java.nio.ByteBuffer
 import java.util
 
+import org.mapdb.DataIO
 import scorex.crypto.encode.Base58
 
 object ByteArrayWrapper {
@@ -42,6 +43,12 @@ case class ByteArrayWrapper(data: Array[Byte])
 
   override def compare(that: ByteArrayWrapper): Int = compareTo(that)
 
-  override def toString: String = getClass.getSimpleName+"["+Base58.encode(data)+"]"
-
+  override def toString: String = {
+    val v = if (size == 8) {
+      DataIO.getLong(data, 0).toString + "L"
+    } else {
+      Base58.encode(data)
+    }
+    getClass.getSimpleName + "[" + v + "]"
+  }
 }

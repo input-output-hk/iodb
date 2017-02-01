@@ -1,9 +1,9 @@
 package io.iohk.iodb
 
-import java.io.{FileOutputStream, RandomAccessFile}
+import java.io.{File, FileOutputStream, RandomAccessFile}
 
 import io.iohk.iodb.Store._
-import io.iohk.iodb.TestUtils.fromLong
+import io.iohk.iodb.TestUtils._
 import org.junit.Test
 
 import scala.collection.JavaConverters._
@@ -25,9 +25,9 @@ class LSMStoreTest extends TestWithTempDir {
       store.taskSharding()
     }
 
-    //journal should be empty once sharding is completed
-    assert(store.fileHandles.keys.filter(_ < 0).size == 0)
-    assert(store.fileOuts.keys.filter(_ < 0).size == 0)
+    //journal should only single file, once sharding is completed
+    assert(store.fileHandles.keys.filter(_ < 0).size == 1)
+    assert(store.fileOuts.keys.filter(_ < 0).size == 1)
     assert(store.journalCache.isEmpty)
 
     //check shard was created
@@ -164,12 +164,15 @@ class LSMStoreTest extends TestWithTempDir {
     for (i <- 0L until limit) {
       val update = (0 until 100).map(a => (fromLong(r.nextLong()), fromLong(r.nextLong())))
       store.update(versionID = fromLong(i), toUpdate = update, toRemove = Nil)
+      store.verify()
       storeEquals(store, openStore)
       store.taskSharding()
+      store.verify()
       storeEquals(store, openStore)
     }
     for (shardKey <- store.shards.keySet().asScala.toSeq) {
       store.taskShardMerge(shardKey)
+      store.verify()
       storeEquals(store, openStore)
     }
     store.close()
@@ -184,7 +187,9 @@ class LSMStoreTest extends TestWithTempDir {
   }
 
   private def storeEquals(store: LSMStore, store2: LSMStore) = {
-    assert(store.journal == store2.journal)
+    assert(store.journalDirty == store2.journalDirty)
+    assert(store.journalRollback == store2.journalRollback)
+    assert(store.journalLastVersionID == store2.journalLastVersionID)
     assert(store.journalCache == store2.journalCache)
     assert(store.fileHandles == store2.fileHandles)
     assert(store.fileOuts.keySet == store2.fileOuts.keySet)
@@ -304,232 +309,99 @@ class LSMStoreTest extends TestWithTempDir {
     )
   }
 
-  //
-  //  @Test def rollback(): Unit = {
-  //    val store = new LSMStore(dir = dir, keySize = 8)
-  //    val key = fromLong(100)
-  //
-  //    store.update(v1, Nil, (key, fromLong(1)) :: Nil)
-  //    store.update(v2, Nil, (key, fromLong(2)) :: Nil)
-  //    store.update(v3, Nil, (key, fromLong(3)) :: Nil)
-  //    assert(store.mainLog.files.size == 3)
-  //    val lastFiles = store.mainLog.files.firstEntry().getValue
-  //
-  //    store.rollback(v2)
-  //
-  //    assert(store.mainLog.lastVersionID.get == v2)
-  //    assert(store.shards.firstKey() <= 2)
-  //
-  //    assert(store.mainLog.files.firstKey() == 2L)
-  //
-  //    assert(!lastFiles.logFile.exists())
-  //
-  //    assert(store.mainLog.files.size == 2)
-  //    assert(store.get(key) == Some(fromLong(2)))
-  //    store.close()
-  //  }
-  //
-  //
-  //  @Test def rollback_shard_merge(): Unit = {
-  //    val store = new LSMStore(dir = dir, keySize = 8, minMergeCount = 1, shardEveryVersions = 1)
-  //    val key = fromLong(100)
-  //
-  //    store.update(v1, Nil, (key, fromLong(1)) :: Nil)
-  //    store.update(v2, Nil, (key, fromLong(2)) :: Nil)
-  //    store.update(v3, Nil, (key, fromLong(3)) :: Nil)
-  //    //force shard redistribution
-  //    store.taskShardLogForce()
-  //
-  //    assert(store.mainLog.files.size == 3)
-  //    assert(store.mainLog.lastVersionID.get == v3)
-  //    assert(store.lastShardedLogVersion == 3)
-  //
-  //    val lastFiles = store.mainLog.files.firstEntry().getValue
-  //
-  //    store.rollback(v2)
-  //
-  //    assert(store.mainLog.lastVersionID.get == v2)
-  //    assert(store.shards.firstKey() <= 2)
-  //
-  //    assert(store.mainLog.files.firstKey() == 2L)
-  //
-  //    assert(!lastFiles.logFile.exists())
-  //
-  //    assert(store.mainLog.files.size == 2)
-  //    assert(store(key) == fromLong(2))
-  //
-  //    store.close()
-  //  }
-  //
-  //  def allShardFiles(store: LSMStore): Set[File] =
-  //    store.getShards.asScala.values
-  //      .flatMap(_.files.values().asScala)
-  //      .map(f => f.logFile)
-  //      .toSet
-  //
-  //  @Test def rollback_shard_split(): Unit = {
-  //    val store = new LSMStore(dir = dir, keySize = 8,
-  //      minMergeCount = 1,
-  //      shardEveryVersions = 1,
-  //      splitSize = 1024)
-  //    val key = fromLong(100)
-  //
-  //    store.update(v1, Nil, (key, fromLong(1)) :: Nil)
-  //    store.update(v2, Nil, (key, fromLong(2)) :: Nil)
-  //
-  //    //all files associated with shards at given version
-  //    val shardFiles2 = allShardFiles(store)
-  //
-  //    //add enough items to trigger shard split
-  //    store.update(v3, Nil,
-  //      (1000 to 9000).map(i => (fromLong(i), fromLong(i)))
-  //    )
-  //
-  //    //move data from main log to shards
-  //    store.taskShardLogForce()
-  //    //split large shard into smaller shards
-  //    store.taskShardMerge()
-  //
-  //    val shardFiles3 = allShardFiles(store)
-  //
-  //    assert(store.mainLog.files.size == 3)
-  //    assert(store.mainLog.lastVersionID.get == v3)
-  //    assert(store.lastShardedLogVersion == 3)
-  //    assert(store.shards.size == 2)
-  //    assert(store.shards.lastKey() == 3)
-  //    assert(store.shards.lastEntry().getValue.size() > 1)
-  //
-  //    val lastFiles = store.mainLog.files.firstEntry().getValue
-  //
-  //    store.rollback(v2)
-  //
-  //    assert(store.mainLog.lastVersionID.get == v2)
-  //    assert(store.shards.lastKey() <= 2)
-  //
-  //    assert(store.mainLog.files.firstKey() == 2L)
-  //
-  //    assert(!lastFiles.logFile.exists())
-  //
-  //    assert(store.mainLog.files.size == 2)
-  //    assert(store(key) == fromLong(2))
-  //
-  //    //ensure shard layout was restored
-  //    assert(store.shards.size() == 1)
-  //
-  //    // /check no old files were deleted
-  //    shardFiles2.foreach { f =>
-  //      assert(f.exists())
-  //    }
-  //    //ensure all shard files were deleted
-  //    shardFiles3.foreach { f =>
-  //      assert(f.exists() == shardFiles2.contains(f))
-  //    }
-  //
-  //    store.close()
-  //  }
-  //
-  //  @Test def reopen() {
-  //    var store = new LSMStore(dir = dir, keySize = 8,
-  //      minMergeCount = 1,
-  //      minMergeSize = 1024,
-  //      shardEveryVersions = 1,
-  //      splitSize = 1024
-  //    )
-  //
-  //    val commitCount = 100
-  //    val keyCount = 1000
-  //
-  //    for (ver <- 1 until commitCount) {
-  //      val toUpdate = (0 until keyCount).map(i => (fromLong(i), fromLong(ver * i)))
-  //      store.update(versionID = TestUtils.fromLong(ver), toRemove = Nil, toUpdate = toUpdate)
-  //    }
-  //
-  //    store.close()
-  //    val oldShards = store.shards
-  //    val oldLastShardedLogVersion = store.lastShardedLogVersion
-  //
-  //    store = new LSMStore(dir = dir, keySize = 8,
-  //      minMergeCount = 1,
-  //      shardEveryVersions = 1,
-  //      splitSize = 1024)
-  //
-  //    for (i <- 1 until keyCount) {
-  //      val value = store(fromLong(i))
-  //      assert(value == fromLong((commitCount - 1) * i))
-  //    }
-  //    store.close()
-  //    assert(oldLastShardedLogVersion == store.lastShardedLogVersion)
-  //    assert(store.shards == oldShards)
-  //  }
-  //
-  //  @Test def loadSaveShardInfo(): Unit = {
-  //    val store = new LSMStore(dir = dir, keySize = 8)
-  //
-  //    def test(s: ShardInfo): Unit = {
-  //      val f = new File(dir, Math.random().toString)
-  //      s.save(f)
-  //      val s2 = store.loadShardInfo(f)
-  //      assert(s == s2)
-  //      f.delete()
-  //    }
-  //
-  //    test(new ShardInfo(startKey = fromLong(11), endKey = fromLong(22),
-  //      startVersionID = TestUtils.fromLong(111L), startVersion = 111L, keySize = 8))
-  //    test(new ShardInfo(startKey = fromLong(11), endKey = null,
-  //      startVersionID = TestUtils.fromLong(111L), startVersion = 111L, keySize = 8))
-  //    store.close()
-  //  }
-  //
-  //  @Test def shardInfoCreated(): Unit = {
-  //    val store = new LSMStore(dir = dir, keySize = 8,
-  //      splitSize = 1024,
-  //      minMergeSize = 1024,
-  //      minMergeCount = 1,
-  //      shardEveryVersions = 1)
-  //
-  //    def files = Utils.listFiles(dir, Utils.shardInfoFileExt)
-  //    assert(files.size == 1)
-  //
-  //    val initShardInfoFile = files(0)
-  //    assert(store.loadShardInfo(initShardInfoFile) ==
-  //      new ShardInfo(startKey = new Store.K(8), endKey = null, startVersionID = new ByteArrayWrapper(0), startVersion = 0L, keySize = 8))
-  //
-  //
-  //    //fill with data, force split
-  //    val toUpdate = (1 until 10000).map(k => (fromLong(k), fromLong(k)))
-  //    for (version <- (1 until 100)) {
-  //      store.update(versionID = TestUtils.fromLong(version), toRemove = Nil, toUpdate = toUpdate)
-  //    }
-  //    store.taskShardLogForce()
-  //    store.taskShardMerge()
-  //    assert(files.size > 1)
-  //    assert(files.contains(initShardInfoFile))
-  //
-  //    assert(store.getShards.size() > 1)
-  //
-  //    val newInfos = files
-  //      .filter(_ != initShardInfoFile)
-  //      .map(store.loadShardInfo(_))
-  //      .toSeq
-  //      .sortBy(_.startKey)
-  //
-  //    assert(newInfos.size == newInfos.toSet.size)
-  //
-  //    newInfos.foldRight[Store.K](null) { (info: ShardInfo, prevEndkey: Store.K) =>
-  //      assert(info.endKey == prevEndkey)
-  //      assert(info.isLastShard == (prevEndkey == null))
-  //      assert(prevEndkey == null || info.startKey.compareTo(info.endKey) < 0)
-  //
-  //      info.startKey
-  //    }
-  //
-  //    assert(newInfos(0).startKey == new Store.K(8))
-  //    store.close()
-  //  }
-  //
-  //  @Test def getVersionIDEmpty(): Unit = {
-  //    val store = new LSMStore(dir = dir)
-  //    assert(None == store.lastVersionID)
-  //  }
-  //
+  @Test def keep_journal_for_rollback(): Unit = {
+    val s = new LSMStore(dir = dir, keySize = 8, keepVersions = 10, executor = null)
+
+    for (i <- 0 until 100) {
+      s.update(versionID = fromLong(i), toRemove = Nil, toUpdate = List((fromLong(i), fromLong(i))))
+      if (i % 31 == 0) {
+        s.taskSharding()
+      }
+      assert(i < 10 || s.journalRollback.size >= 10)
+      if (i > 80)
+        assert(s.journalRollback.size < 70)
+    }
+
+    s.close()
+  }
+
+
+  @Test def rollback(): Unit = {
+    val store = new LSMStore(dir = dir, keySize = 8, keepVersions = 10)
+    val key = fromLong(100)
+
+    store.update(v1, Nil, (key, fromLong(1)) :: Nil)
+    store.update(v2, Nil, (key, fromLong(2)) :: Nil)
+    store.update(v3, Nil, (key, fromLong(3)) :: Nil)
+    assert(store.fileHandles.size == 1)
+    assert(store.journalDirty.size == 3)
+
+    store.rollback(v2)
+    assert(store.journalDirty.head.versionID == v2)
+    assert(store.get(key) == Some(fromLong(2)))
+
+    store.close()
+  }
+
+  @Test def rollback_shard_merge(): Unit = {
+    val store = new LSMStore(dir = dir, keySize = 8, splitSize = 1, keepVersions = 100)
+    val key = fromLong(100)
+
+    store.update(v1, Nil, (key, fromLong(1)) :: Nil)
+    store.update(v2, Nil, (key, fromLong(2)) :: Nil)
+    store.update(v3, Nil, (key, fromLong(3)) :: Nil)
+    //force shard redistribution
+    store.taskSharding()
+    store.shards.keySet().asScala.foreach(store.taskShardMerge(_))
+
+    assert(store.lastVersionID.get == v3)
+    //assert(store.lastShardedLogVersion == 3)
+
+    val shardFiles = store.fileHandles.keySet.filter(_ >= 0).toBuffer
+
+    store.rollback(v2)
+
+    assert(store.lastVersionID.get == v2)
+    assert(store.shards.isEmpty)
+
+    assert(shardFiles.forall(fileNum => store.numToFile(fileNum).exists()))
+
+    assert(store.fileHandles.keySet.filter(_ >= 0) == Set(1L))
+    assert(store.fileOuts.keySet.filter(_ >= 0) == Set(1L))
+
+    assert(store.journalDirty.size == 2)
+    assert(store(key) == fromLong(2))
+
+    store.close()
+  }
+
+  def allShardFiles(store: LSMStore): Iterable[File] =
+    store.fileHandles.keys.filter(_ >= 0).map(store.numToFile(_))
+
+
+  @Test def getVersionIDEmpty(): Unit = {
+    val store = new LSMStore(dir = dir)
+    assert(None == store.lastVersionID)
+  }
+
+
+  @Test def max_file_size(): Unit = {
+    val keySize = 1000
+    val maxFileSize = 1024 * 1024
+    val s = new LSMStore(dir = dir, maxFileSize = maxFileSize, keySize = 1000, executor = null)
+
+    for (i <- 0 until 100000) {
+      s.update(
+        versionID = fromLong(i),
+        toUpdate = List(Pair(randomA(keySize), randomA(keySize * 4))),
+        toRemove = Nil)
+
+      dir.listFiles().foreach { f =>
+        assert(f.length() <= maxFileSize * 2, f.getName)
+      }
+    }
+    s.close()
+  }
+
+
 }

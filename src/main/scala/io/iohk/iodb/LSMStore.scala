@@ -3,10 +3,10 @@ package io.iohk.iodb
 import java.io._
 import java.nio.ByteBuffer
 import java.util
-import java.util.Comparator
 import java.util.concurrent._
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.logging.Level
+import java.util.{Comparator, NoSuchElementException}
 
 import com.google.common.collect.Iterators
 import io.iohk.iodb.Store._
@@ -33,48 +33,60 @@ class LSMStore(
                 maxJournalEntryCount: Int = 1000000,
                 maxShardUnmergedCount: Int = 4,
                 splitSize: Int = 1024 * 1024,
-                keepVersions: Int = 0
+                keepVersions: Int = 0,
+                maxFileSize: Long = 64 * 1024 * 1024
               ) extends Store {
 
   val fileAccess: FileAccess = FileAccess.SAFE
 
   val lock = new ReentrantReadWriteLock()
 
-  @volatile protected[iodb] var journal: List[LogFileUpdate] = Nil
+  protected[iodb] var journalDirty: List[LogFileUpdate] = Nil
   protected[iodb] val journalCache = new util.TreeMap[K, V]
+  protected[iodb] var journalLastVersionID: Option[VersionID] = None
+
+  //TODO mutable buffer, or queue?
+  protected[iodb] var journalRollback: List[LogFileUpdate] = Nil
+
 
   protected[iodb] val fileHandles = mutable.HashMap[Long, Any]()
   protected[iodb] val fileOuts = mutable.HashMap[Long, FileOutputStream]()
 
-  protected[iodb] val shards = new util.TreeMap[K, List[LogFileUpdate]]()
+  protected[iodb] var shards = new util.TreeMap[K, List[LogFileUpdate]]()
+
+  protected[iodb] val shardRollback =
+    new mutable.LinkedHashMap[VersionID, util.TreeMap[K, List[LogFileUpdate]]]
 
   {
+    assert(maxFileSize < 1024 * 1024 * 1024, "maximal file size must be < 1GB")
+
     //some initialization logic
     if (!dir.exists() || !dir.isDirectory)
       throw new IllegalArgumentException("dir does not exist, or is not an directory")
-
-    val journalNumbers = dir.listFiles()
-      .filter(isJournalFile(_))
-      .map(journalFileToNum(_)) //add file number
-
-    //open journal file handles
-    journalNumbers.foreach(p => fileHandles(p) = fileAccess.open(numToFile(p).getPath))
-
-    journal = loadJournal(journalNumbers.sorted.reverse)
 
     // load all shard linked lists
     val shardNums = dir.listFiles()
       .filter(isShardFile(_))
       .map(shardFileToNum(_))
 
+    val journalNumbers = dir.listFiles()
+      .filter(isJournalFile(_))
+      .map(journalFileToNum(_)) //add file number
+      .sorted
+
+    //open journal file handles
+    journalNumbers.foreach { p =>
+      val f = numToFile(p)
+      fileHandles(p) = fileAccess.open(f.getPath)
+      fileOuts(p) = new FileOutputStream(f, true)
+    }
+
     //open shard file handles
     shardNums.foreach { fileNum =>
       val f = numToFile(fileNum)
       fileHandles(fileNum) = fileAccess.open(f.getPath)
-
       //TODO verify file size matches update log, last update in file could be corrupted
-      val out = new FileOutputStream(f, true)
-      fileOuts(fileNum) = out
+      fileOuts(fileNum) = new FileOutputStream(f, true)
     }
 
     val shardLinks: Seq[List[LogFileUpdate]] = shardNums.flatMap { num =>
@@ -83,7 +95,7 @@ class LSMStore(
       )
     }
 
-    //elimite older shard links
+    //eliminate older shard links
     val shardTailsVersionIDs = shardLinks.map(_.last.versionID).toSet
 
     //restore shards
@@ -100,46 +112,25 @@ class LSMStore(
 
     val shardHeadVersionIDs = shardLinks.map(_.head.versionID).toSet
 
+
+    val j = loadJournal(journalNumbers.sorted.reverse)
+
+    journalLastVersionID = j.headOption.map(_.versionID)
+
     //find newest entry in journal present which is also present in shard
     //and cut journal, so it does not contain old entries
-    val newJournal = new ArrayBuffer[LogFileUpdate]()
-    var j = journal
-    while (j != Nil) {
-      if (shardHeadVersionIDs.contains(j.head.versionID)) {
-        j = Nil
-      } else {
-        newJournal += j.head
-        j = j.tail
-      }
-    }
-
-    journal = newJournal.toList
+    journalDirty = j.takeWhile(u => !shardHeadVersionIDs.contains(u.versionID)).toList
     //restore journal cache
-    keyValues(journal, isJournal = true)
+    keyValues(journalDirty)
       .foreach(a => journalCache.put(a._1, a._2))
 
-    //close journal files which are not present in current journal
-    val fileNumsInJournal = journal.map(_.fileNum).toSet
-    fileHandles
-      .filter(_._1 < 0)
-      .filterNot(u => fileNumsInJournal.contains(u._1))
-      .foreach { u =>
-        fileHandles.remove(u._1)
-        fileAccess.close(u._2)
-      }
-
-    //open last journal file for writing
-    //TODO check if end is corrupted
-    journal.headOption.foreach { u =>
-      val f = numToFile(u.fileNum)
-      val out = new FileOutputStream(f, true)
-      fileOuts.put(u.fileNum, out)
-    }
+    if (keepVersions > 0)
+      journalRollback = j.toList
   }
 
 
   /** read files and reconstructs linked list of updates */
-  protected[iodb] def loadJournal(files: Iterable[Long]): List[LogFileUpdate] = {
+  protected[iodb] def loadJournal(files: Iterable[Long]): mutable.Buffer[LogFileUpdate] = {
     //read files into structure
     val updates = files
       .flatMap(fileNum => loadUpdates(file = numToFile(fileNum), fileNum = fileNum))
@@ -156,11 +147,11 @@ class LSMStore(
       b = cur.get(b.get.prevVersionID)
     }
 
-    return list.toList
+    return list
   }
 
   protected[iodb] def journalDeleteFilesButNewest(): Unit = {
-    val knownNums = journal.map(_.fileNum).toSet
+    val knownNums = journalDirty.map(_.fileNum).toSet
     val filesToDelete = journalListSortedFiles()
       .drop(1) //do not delete first file
       .filterNot(f => knownNums.contains(journalFileToNum(f))) //do not delete known files
@@ -173,10 +164,17 @@ class LSMStore(
   /** creates new journal file, if no file is opened */
   protected def initJournal(): Unit = {
     assert(lock.isWriteLockedByCurrentThread)
-    if (journal != Nil)
+    if (journalDirty != Nil)
       return;
 
     //create new journal
+    journalStartNewFile()
+    journalDirty = Nil
+  }
+
+  protected[iodb] def journalStartNewFile(): Long = {
+    assert(lock.isWriteLockedByCurrentThread)
+
     val fileNum = journalNewFileNum()
     val journalFile = numToFile(fileNum)
     assert(!(journalFile.exists()))
@@ -185,7 +183,8 @@ class LSMStore(
     val fileHandle = fileAccess.open(journalFile.getPath)
     fileOuts(fileNum) = out
     fileHandles(fileNum) = fileHandle
-    journal = Nil
+
+    return fileNum
   }
 
   protected[iodb] def loadUpdates(file: File, fileNum: Long): Iterable[LogFileUpdate] = {
@@ -261,19 +260,6 @@ class LSMStore(
     din.close()
     return updates
   }
-
-  //
-  //  protected def initShards(): Unit = {
-  //    assert(lock.isWriteLockedByCurrentThread)
-  //    if(!shards.isEmpty)
-  //      return
-  //
-  //    val shard = createEmptyShard()
-  //
-  //    val lowestKey = new ByteArrayWrapper(keySize)
-  //    shards.put(lowestKey, shard)
-  //    lastShardingVersionID=Store.tombstone
-  //  }
 
 
   protected[iodb] def isJournalFile(f: File): Boolean =
@@ -365,8 +351,8 @@ class LSMStore(
   }
 
   def versionIDExists(versionID: VersionID): Boolean = {
-    //TODO traverse all files, not just open
-    if (journal.find(u => u.versionID == versionID || u.prevVersionID == versionID) != None)
+    //TODO traverse all files, not just open files
+    if (journalRollback.find(u => u.versionID == versionID || u.prevVersionID == versionID) != None)
       return true
 
     if (shards.values().asScala.flatMap(a => a)
@@ -388,16 +374,35 @@ class LSMStore(
       initJournal()
 
       //last version from journal
-      val prevVersionID = lastVersionID().getOrElse(new ByteArrayWrapper(0))
+      val prevVersionID = journalLastVersionID.getOrElse(new ByteArrayWrapper(0))
 
-      //TODO ensure journal file is <2GB, else start new file
+      var journalFileNum = journalCurrentFileNum()
+      //if journal file is too big, start new file
+      if (numToFile(journalFileNum).length() > maxFileSize) {
+        //start a new file
+        //        fileOuts.remove(journalFileNum).get.close()
+        journalFileNum = journalStartNewFile()
+        val file = numToFile(journalFileNum)
+        val out = new FileOutputStream(file)
+        fileOuts(journalFileNum) = out
+        fileHandles(journalFileNum) = fileAccess.open(file.getPath())
+      }
 
-      val updateEntry = updateAppend(fileNum = journalCurrentFileNum(),
-        toRemove = toRemove, toUpdate = toUpdate,
-        versionID = versionID, prevVersionID = prevVersionID, merged = false,
-        shardStartKey = null, shardEndKey = null)
+      val updateEntry = updateAppend(
+        fileNum = journalFileNum,
+        toRemove = toRemove,
+        toUpdate = toUpdate,
+        versionID = versionID,
+        prevVersionID = prevVersionID,
+        merged = false,
+        shardStartKey = null,
+        shardEndKey = null)
 
-      journal = updateEntry :: journal
+      journalDirty = updateEntry :: journalDirty
+      if (keepVersions > 0) {
+        journalRollback = updateEntry :: journalRollback
+      }
+      journalLastVersionID = Some(versionID)
 
       //update journal cache
       for (key <- toRemove) {
@@ -556,10 +561,13 @@ class LSMStore(
     ret
   }
 
-  override def lastVersionID(): Option[VersionID] = {
-    //TODO this does not work if Journal is empty
-    if (journal == Nil) None
-    else journal.headOption.map(_.versionID)
+  override def lastVersionID: Option[VersionID] = {
+    lock.readLock().lock()
+    try {
+      return journalLastVersionID
+    } finally {
+      lock.readLock().unlock()
+    }
   }
 
 
@@ -621,7 +629,7 @@ class LSMStore(
   def taskSharding(): Unit = {
     lock.writeLock().lock()
     try {
-      val versionID = lastVersionID().getOrElse(null)
+      val versionID = lastVersionID.getOrElse(null)
       if (versionID == null)
         return // empty store
       if (journalCache.isEmpty)
@@ -678,18 +686,24 @@ class LSMStore(
           }
       }
       journalCache.clear()
+      journalDirty = Nil
+
+      //backup current shard layout
+      if (keepVersions > 0)
+        shardRollback.put(versionID, shards.clone().asInstanceOf[util.TreeMap[K, List[LogFileUpdate]]])
 
       //destroy journal files if needed
       if (keepVersions == 0) {
+        val lastFileNum = journalCurrentFileNum()
         fileOuts.keySet.filter(_ < 0).foreach { fileNum =>
-          fileOuts.remove(fileNum).get.close()
+          if (fileNum != lastFileNum)
+            fileOuts.remove(fileNum).get.close()
         }
         fileHandles.keySet.filter(_ < 0).foreach { fileNum =>
-          fileAccess.close(fileHandles.remove(fileNum))
+          if (fileNum != lastFileNum)
+            fileAccess.close(fileHandles.remove(fileNum))
         }
         journalDeleteFilesButNewest()
-        journal = Nil
-
       }
     } finally {
       lock.writeLock().unlock()
@@ -760,9 +774,9 @@ class LSMStore(
       }
       //release old file handles
       val oldShardNum = shard.head.fileNum
-      fileOuts.remove(oldShardNum).get.close()
-      fileAccess.close(fileHandles.remove(oldShardNum).get)
       if (keepVersions == 0) {
+        fileOuts.remove(oldShardNum).get.close()
+        fileAccess.close(fileHandles.remove(oldShardNum).get)
         val deleted = numToFile(oldShardNum).delete()
         assert(deleted, "shard file was not deleted")
       }
@@ -775,7 +789,56 @@ class LSMStore(
 
   override def cleanStop(): Unit = ???
 
-  override def rollback(versionID: VersionID): Unit = ???
+  override def rollback(versionID: VersionID): Unit = {
+    def notFound() = throw new NoSuchElementException("versionID not found, can not rollback")
+
+    lock.writeLock().lock()
+    try {
+      if (journalRollback.isEmpty)
+        notFound()
+
+      if (journalRollback.head.versionID == versionID)
+        return
+
+      //cut journal
+      var notFound2 = true;
+      var lastShard: util.TreeMap[K, List[LogFileUpdate]] = null
+      val j = journalRollback
+        //find starting version
+        .dropWhile { u =>
+        notFound2 = u.versionID != versionID
+        notFound2
+      }
+        //find end version, where journal was sharded, also restore Shard Layout in sideeffect
+        .takeWhile { u =>
+        lastShard = shardRollback.getOrElse(u.versionID, null)
+        lastShard == null
+      }
+
+      if (notFound2)
+        notFound()
+
+      if (lastShard == null) {
+        //Reached end of journalRollback, without finding shard layout
+        //Check if journal log was not truncated
+        if (journalRollback.last.prevVersionID != tombstone)
+          notFound()
+        shards.clear()
+      } else {
+        shards = lastShard
+      }
+      //rebuild journal cache
+      journalCache.clear()
+      keyValues(j).foreach { e =>
+        journalCache.put(e._1, e._2)
+      }
+      journalLastVersionID = Some(versionID)
+
+      journalDirty = j
+    } finally {
+      lock.writeLock().unlock()
+    }
+  }
 
 
   override def close(): Unit = {
@@ -791,11 +854,8 @@ class LSMStore(
   }
 
 
-  protected[iodb] def keyValues(fileLog: List[LogFileUpdate], isJournal: Boolean = false): Iterator[(K, V)] = {
+  protected[iodb] def keyValues(fileLog: List[LogFileUpdate]): Iterator[(K, V)] = {
     //assert that all updates except last are merged
-    assert(fileLog.isEmpty || (fileLog.last.merged == !isJournal))
-    assert(!isJournal || fileLog.forall(!_.merged))
-    //    assert(fileLog.isEmpty || fileLog.takeWhile(!_.merged).size==fileLog.size-1)
 
     val iters = fileLog.map { u =>
       fileAccess.readKeyValues(fileHandle = fileHandles(u.fileNum),
@@ -831,6 +891,7 @@ class LSMStore(
         assert(u.shardEndKey == endKey)
       }
       val fileNum = e._2.head.fileNum
+      assert(fileHandles.contains(fileNum))
       val updates = loadUpdates(file = numToFile(fileNum), fileNum = fileNum)
 
       updates.foreach { u =>
@@ -840,6 +901,12 @@ class LSMStore(
 
       e._1
     }
+    val existFiles =
+      (dir.listFiles().filter(isJournalFile(_)).map(journalFileToNum(_)) ++
+        dir.listFiles().filter(isShardFile(_)).map(shardFileToNum(_))).toSet
+
+    assert(existFiles == fileHandles.keySet)
+    assert(existFiles == fileOuts.keySet)
   }
 }
 
