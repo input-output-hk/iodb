@@ -431,4 +431,36 @@ class LSMStoreTest extends TestWithTempDir {
     assert(spec2.shards.size == store.shardRollback.last._2.size)
   }
 
+  @Test def rollback2(): Unit = {
+    def open = new LSMStore(
+      dir = dir, keySize = 8, splitSize = 20,
+      executor = null, maxFileSize = 1024,
+      maxJournalEntryCount = 10, maxShardUnmergedCount = 3,
+      keepVersions = 10000000)
+
+    val s = open
+
+    //fill
+    val limit: Long = 1000 + TestUtils.longTest() * 100000
+    val step: Long = 100
+    for (i <- 1L to limit by step) {
+      s.update(versionID = fromLong(i), toRemove = Nil,
+        toUpdate = (i until (i + step)).map(a => (fromLong(a), fromLong(a))))
+      storeEquals(s, open)
+    }
+
+    for (i <- (1L to limit by step).reverse) {
+      s.rollback(versionID = fromLong(i))
+      s.verify()
+      storeEquals(s, open)
+
+      for (a <- 1L until i + step) {
+        assert(s.get(fromLong(a)).get == fromLong(a))
+      }
+      for (a <- i + step to limit) {
+        assert(s.get(fromLong(a)) == None)
+      }
+      storeEquals(s, open)
+    }
+  }
 }

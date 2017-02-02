@@ -267,7 +267,7 @@ object FileAccess {
           if (valueSize == -1)
             return None
           //tombstone, return nothing
-          val valueOffset = readInt(c, valuePointersOffset, tempBuf)
+          val valueOffset = readInt(c, valuePointersOffset + 4, tempBuf)
 
           //load value
           return Some(readData(c, updateOffset + valueOffset, valueSize))

@@ -127,7 +127,7 @@ class LSMStore(
     }
 
     val j = loadJournal(journalNumbers.sorted.reverse)
-
+    j.headOption.foreach { h => assert(h.versionID != h.prevVersionID) }
     journalLastVersionID = j.headOption.map(_.versionID)
 
     //find newest entry in journal present which is also present in shard
@@ -164,11 +164,13 @@ class LSMStore(
       .toSeq
 
     //add some indexes
-    val cur = updates.map(u => (u.versionID, u)).toMap
+    val cur = updates
+      .filter(u => u.versionID != u.prevVersionID) //do not include marker entries into index
+      .map(u => (u.versionID, u)).toMap
 
     //start from last update and reconstruct list
     val list = new ArrayBuffer[LogFileUpdate]
-    var b = updates.lastOption
+    var b = updates.lastOption.map(u => cur(u.versionID))
     while (b != None) {
       list += b.get
       b = cur.get(b.get.prevVersionID)
@@ -805,9 +807,13 @@ class LSMStore(
     }
   }
 
-  override def clean(count: Int): Unit = ???
+  override def clean(count: Int): Unit = {
+    taskCleanup()
+  }
 
-  override def cleanStop(): Unit = ???
+  override def cleanStop(): Unit = {
+
+  }
 
   override def rollback(versionID: VersionID): Unit = {
     def notFound() = throw new NoSuchElementException("versionID not found, can not rollback")
@@ -823,14 +829,14 @@ class LSMStore(
       //cut journal
       var notFound2 = true;
       var lastShard: ShardLayout = null
-      val j = journalRollback
+      journalRollback = journalRollback
         //find starting version
         .dropWhile { u =>
         notFound2 = u.versionID != versionID
         notFound2
       }
-        //find end version, where journal was sharded, also restore Shard Layout in sideeffect
-        .takeWhile { u =>
+      //find end version, where journal was sharded, also restore Shard Layout in side effect
+      val j = journalRollback.takeWhile { u =>
         lastShard = shardRollback.getOrElse(u.versionID, null)
         lastShard == null
       }
@@ -853,8 +859,16 @@ class LSMStore(
         journalCache.put(e._1, e._2)
       }
       journalLastVersionID = Some(versionID)
-
       journalDirty = j
+
+      //insert new marker update to journal, so when reopened we start with this version
+      val updateEntry = updateAppend(
+        fileNum = journalCurrentFileNum(),
+        toRemove = Nil,
+        toUpdate = Nil,
+        versionID = versionID,
+        prevVersionID = versionID,
+        merged = false)
 
       taskCleanup()
     } finally {
