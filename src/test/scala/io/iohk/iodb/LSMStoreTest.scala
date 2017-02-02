@@ -312,17 +312,17 @@ class LSMStoreTest extends TestWithTempDir {
     assert(store.lastVersionID.get == v3)
     //assert(store.lastShardedLogVersion == 3)
 
-    val shardFiles = store.fileHandles.keySet.filter(_ >= 0).toBuffer
+    def shardFiles = store.fileHandles.keySet.filter(_ >= 0).toBuffer
 
     store.rollback(v2)
 
     assert(store.lastVersionID.get == v2)
     assert(store.shards.isEmpty)
 
-    assert(shardFiles.forall(fileNum => store.numToFile(fileNum).exists()))
+    assert(shardFiles.isEmpty)
 
-    assert(store.fileHandles.keySet.filter(_ >= 0) == Set(1L))
-    assert(store.fileOuts.keySet.filter(_ >= 0) == Set(1L))
+    assert(store.fileHandles.keySet.filter(_ >= 0).isEmpty)
+    assert(store.fileOuts.keySet.filter(_ >= 0).isEmpty)
 
     assert(store.journalDirty.size == 2)
     assert(store(key) == fromLong(2))
