@@ -10,6 +10,7 @@ object Store {
   /** type used for versionID */
   type VersionID = ByteArrayWrapper
 
+  val tombstone = new ByteArrayWrapper(0)
 }
 
 /**

@@ -4,20 +4,19 @@ organization := "org.scorexfoundation"
 
 name := "iodb"
 
-version := "0.1.2-SNAPSHOT"
+version := "0.2.0-SNAPSHOT"
 
-scalaVersion := "2.12.1"
+scalaVersion := "2.11.8"
 
 libraryDependencies ++= Seq(
   "com.google.guava" % "guava" % "19.0",
-  "org.scorexfoundation" %% "scrypto" % "1.2.0",
-  "org.scalatest" %% "scalatest" % "3.+" % "test",
-  "org.scalactic" %% "scalactic" % "3.+" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.13.+" % "test",
+  "org.scalatest" %% "scalatest" % "2.+" % "test",
+  "org.scalactic" %% "scalactic" % "2.+" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.12.+" % "test",
   "com.novocode" % "junit-interface" % "0.11" % "test",
   "org.rocksdb" % "rocksdbjni" % "4.5.1" % "test",
   "org.slf4j" % "slf4j-api" % "1.+",
-  "ch.qos.logback" % "logback-classic" % "1.+"
+  "ch.qos.logback" % "logback-classic" % "1.+" % "test"
 )
 
 licenses := Seq("CC0" -> url("https://creativecommons.org/publicdomain/zero/1.0/legalcode"))
