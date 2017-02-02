@@ -25,3 +25,20 @@ Update Entry
 
 - section with values    
 
+
+Shard Spec 
+---------------
+this is stored in Shard Layout Log
+
+- **checksum** - long - checksum for update entry
+- **update size** - int - number of bytes consumed by this entry, includes long
+- **key count** - int - number of keys in this Update
+- **key size** - int - number of bytes in each key in this Update
+- **versionID size** - int - number of bytes used in versionID
+- **prevVersionID size** - int - number of bytes used by previous versionID
+
+- followed by table with size 'key count' of 
+    - **start key** - byte[]
+    - **file number** - long
+    - **versionID size** - int - number of bytes used in versionID
+    - **versionID** - byte[] - versionID at which this shard was created

@@ -21,20 +21,25 @@ protected[iodb] object LSMStore {
   val fileJournalPrefix = "journal"
   val fileShardPrefix = "shard-"
   val updateHeaderSize = +8 + 4 + 4 + 4 + 4 + 4 + 1
+
+  val shardLayoutLog = "shardLayoutLog"
+
+  type ShardLayout = util.TreeMap[K, List[LogFileUpdate]]
 }
 
+import io.iohk.iodb.LSMStore._
 /**
   * Created by jan on 18.1.17.
   */
 class LSMStore(
-                dir: File,
-                keySize: Int = 32,
-                executor: Executor = Executors.newCachedThreadPool(),
-                maxJournalEntryCount: Int = 1000000,
-                maxShardUnmergedCount: Int = 4,
-                splitSize: Int = 1024 * 1024,
-                keepVersions: Int = 0,
-                maxFileSize: Long = 64 * 1024 * 1024
+                val dir: File,
+                val keySize: Int = 32,
+                val executor: Executor = Executors.newCachedThreadPool(),
+                val maxJournalEntryCount: Int = 1000000,
+                val maxShardUnmergedCount: Int = 4,
+                val splitSize: Int = 1024 * 1024,
+                val keepVersions: Int = 0,
+                val maxFileSize: Long = 64 * 1024 * 1024
               ) extends Store {
 
   val fileAccess: FileAccess = FileAccess.SAFE
@@ -48,14 +53,15 @@ class LSMStore(
   //TODO mutable buffer, or queue?
   protected[iodb] var journalRollback: List[LogFileUpdate] = Nil
 
+  protected[iodb] var shardLayoutLog: FileOutputStream = null
 
   protected[iodb] val fileHandles = mutable.HashMap[Long, Any]()
   protected[iodb] val fileOuts = mutable.HashMap[Long, FileOutputStream]()
 
-  protected[iodb] var shards = new util.TreeMap[K, List[LogFileUpdate]]()
+  protected[iodb] var shards = new ShardLayout()
 
   protected[iodb] val shardRollback =
-    new mutable.LinkedHashMap[VersionID, util.TreeMap[K, List[LogFileUpdate]]]
+    new mutable.LinkedHashMap[VersionID, ShardLayout]
 
   {
     assert(maxFileSize < 1024 * 1024 * 1024, "maximal file size must be < 1GB")
@@ -89,29 +95,36 @@ class LSMStore(
       fileOuts(fileNum) = new FileOutputStream(f, true)
     }
 
-    val shardLinks: Seq[List[LogFileUpdate]] = shardNums.flatMap { num =>
-      shardExpandHeads(
-        loadUpdates(file = numToFile(num), fileNum = num)
-      )
-    }
+    //replay Shard Layout Log and restore shards
+    val slogFile = new File(dir, LSMStore.shardLayoutLog)
+    if (slogFile.exists()) {
+      val slogInF = new FileInputStream(slogFile)
+      val slogIn = new DataInputStream(new BufferedInputStream(slogInF))
 
-    //eliminate older shard links
-    val shardTailsVersionIDs = shardLinks.map(_.last.versionID).toSet
-
-    //restore shards
-    shardLinks
-      //      .filterNot(l=> shardTailsVersionIDs.contains(l.head.versionID))
-      .foreach { u =>
-      val shardKey = u.head.shardStartKey
-      val oldShard = shards.putIfAbsent(shardKey, u)
-      //if already exists, replace merged
-      if (oldShard != null && !oldShard.head.merged && u.head.merged) {
-        shards.put(shardKey, u)
+      val slog = new ArrayBuffer[ShardSpec]()
+      while (slogIn.available() > 0) {
+        slog += deserializeShardSpec(slogIn)
       }
+      slogIn.close()
+
+      //restore shard layouts
+      for (s <- slog;
+           //check all files for this shard exists
+           if (s.shards.map(_.fileNum).forall(fileHandles.contains(_)))
+      ) {
+        val t = new ShardLayout()
+        for (e <- s.shards) {
+          val updates = loadUpdates(numToFile(e.fileNum), e.fileNum)
+          val linked = linkTogether(versionID = e.versionID, updates)
+          t.put(e.startKey, linked)
+        }
+        shardRollback.put(s.versionID, t)
+      }
+
+
+      if (shardRollback.size > 0)
+        shards = shardRollback.last._2.clone().asInstanceOf[ShardLayout]
     }
-
-    val shardHeadVersionIDs = shardLinks.map(_.head.versionID).toSet
-
 
     val j = loadJournal(journalNumbers.sorted.reverse)
 
@@ -119,15 +132,29 @@ class LSMStore(
 
     //find newest entry in journal present which is also present in shard
     //and cut journal, so it does not contain old entries
-    journalDirty = j.takeWhile(u => !shardHeadVersionIDs.contains(u.versionID)).toList
+    journalDirty = j.takeWhile(u => !shardRollback.contains(u.versionID)).toList
     //restore journal cache
     keyValues(journalDirty)
       .foreach(a => journalCache.put(a._1, a._2))
 
-    if (keepVersions > 0)
-      journalRollback = j.toList
+    journalRollback = j.toList
+
+    if (journalRollback.size > 0)
+      taskCleanup(deleteFiles = false)
   }
 
+
+  protected[iodb] def initShardLayoutLog(): Unit = {
+    lock.writeLock().lock()
+    try {
+      if (shardLayoutLog != null)
+        return
+      val f = new File(dir, LSMStore.shardLayoutLog)
+      shardLayoutLog = new FileOutputStream(f, true)
+    } finally {
+      lock.writeLock().unlock()
+    }
+  }
 
   /** read files and reconstructs linked list of updates */
   protected[iodb] def loadJournal(files: Iterable[Long]): mutable.Buffer[LogFileUpdate] = {
@@ -192,9 +219,6 @@ class LSMStore(
 
     val fin = new FileInputStream(file)
     val din = new DataInputStream(new BufferedInputStream(fin))
-    var shardStartKey: K = null
-    var shardEndKey: K = null
-
     var offset = 0
 
     while (offset < fin.getChannel.size()) {
@@ -230,31 +254,13 @@ class LSMStore(
       if (prevVersionIDSize > 0)
         System.arraycopy(data, verPos + versionIDSize, prevVersionID.data, 0, prevVersionIDSize)
 
-      val update = new LogFileUpdate(
+      updates += new LogFileUpdate(
         versionID = versionID,
         prevVersionID = prevVersionID,
         merged = isMerged,
         fileNum = fileNum,
         offset = offset,
-        keyCount = keyCount,
-        shardStartKey = shardStartKey,
-        shardEndKey = shardEndKey
-      )
-
-      //first entry in shard contains info about start/end key, in that case do not load
-      if (offset == 0 && keyCount <= 2 && versionID == tombstone && prevVersionID == tombstone) {
-        //read start and end key
-        shardStartKey = new ByteArrayWrapper(keySize)
-        System.arraycopy(data, LSMStore.updateHeaderSize, shardStartKey.data, 0, keySize)
-        if (keyCount == 1) {
-          shardEndKey = null
-        } else {
-          shardEndKey = new ByteArrayWrapper(keySize)
-          System.arraycopy(data, LSMStore.updateHeaderSize + keySize, shardEndKey.data, 0, keySize)
-        }
-      } else {
-        updates += update
-      }
+        keyCount = keyCount)
       offset += updateSize
     }
     din.close()
@@ -283,7 +289,7 @@ class LSMStore(
     .headOption.map(journalFileToNum(_))
     .getOrElse(0L) - 1L
 
-  def journalCurrentFileNum(): Long = fileOuts.keys.min
+  protected def journalCurrentFileNum(): Long = fileOuts.keys.min
 
   protected[iodb] def shardFileToNum(f: File): Long =
     f.getName().substring(LSMStore.fileShardPrefix.size).toLong
@@ -304,39 +310,19 @@ class LSMStore(
     .getOrElse(0L) + 1
 
 
-  /** find entries, which are not linked from any other entry */
-  protected[iodb] def shardFindHeads(updates: Iterable[LogFileUpdate]): Seq[LogFileUpdate] = {
-    val prevLinks = updates
-      .map(u => (u.prevVersionID, u.shardStartKey, u.shardEndKey))
-      .toSet
-
-    val prevLinks2 = updates
-      .map(u => (u.versionID, u.shardStartKey, u.shardEndKey))
-      .toSet
-
-    return updates
-      .filterNot(u => prevLinks.contains(
-        (u.versionID, u.shardStartKey, u.shardEndKey)
-      ))
-      .toBuffer
-  }
-
   /** expand shard tails into linked lists */
-  protected[iodb] def shardExpandHeads(updates: Iterable[LogFileUpdate]): Seq[List[LogFileUpdate]] = {
+  protected[iodb] def linkTogether(versionID: VersionID, updates: Iterable[LogFileUpdate]): List[LogFileUpdate] = {
     //index to find previous versions
-    val m = updates.map { u => ((u.versionID, u.shardStartKey, u.shardEndKey), u) }.toMap
+    val m = updates.map { u => (u.versionID, u) }.toMap
 
-    def buildList(u: LogFileUpdate): List[LogFileUpdate] = {
-      val r = new ArrayBuffer[LogFileUpdate]()
-      var a = u;
-      while (a != null) {
-        r += a
-        a = m.getOrElse((a.prevVersionID, a.shardStartKey, a.shardEndKey), null)
-      }
-      return r.toList
+    var ret = new ArrayBuffer[LogFileUpdate]()
+    var r = m.get(versionID)
+    while (r != None) {
+      ret += r.get
+      r = m.get(r.get.prevVersionID)
     }
 
-    return shardFindHeads(updates).map(buildList(_)).toBuffer
+    return ret.toList
   }
 
   protected[iodb] def createEmptyShard(): Long = {
@@ -394,14 +380,10 @@ class LSMStore(
         toUpdate = toUpdate,
         versionID = versionID,
         prevVersionID = prevVersionID,
-        merged = false,
-        shardStartKey = null,
-        shardEndKey = null)
+        merged = false)
 
       journalDirty = updateEntry :: journalDirty
-      if (keepVersions > 0) {
-        journalRollback = updateEntry :: journalRollback
-      }
+      journalRollback = updateEntry :: journalRollback
       journalLastVersionID = Some(versionID)
 
       //update journal cache
@@ -420,6 +402,7 @@ class LSMStore(
           taskSharding()
         }
       }
+      taskCleanup()
     } finally {
       lock.writeLock().unlock()
     }
@@ -431,12 +414,10 @@ class LSMStore(
                                     toUpdate: Iterable[(K, V)],
                                     versionID: VersionID,
                                     prevVersionID: V,
-                                    merged: Boolean,
-                                    shardStartKey: K,
-                                    shardEndKey: K
+                                    merged: Boolean
                                   ): LogFileUpdate = {
     //insert new Update into journal
-    val updateData = createUpdateData(
+    val updateData = serializeUpdate(
       versionID = versionID,
       prevVersionID = prevVersionID,
       toRemove = toRemove,
@@ -456,9 +437,7 @@ class LSMStore(
       merged = merged,
       fileNum = fileNum,
       versionID = versionID,
-      prevVersionID = prevVersionID,
-      shardStartKey = shardStartKey,
-      shardEndKey = shardEndKey
+      prevVersionID = prevVersionID
     )
   }
 
@@ -484,7 +463,84 @@ class LSMStore(
   }
 
 
-  protected[iodb] def createUpdateData(
+  protected[iodb] def serializeShardSpec(
+                                          versionID: VersionID,
+                                          shards: Seq[(K, Long, VersionID)]
+                                        ): Array[Byte] = {
+
+    assert(shards.size > 0)
+    val out = new ByteArrayOutputStream()
+    val out2 = new DataOutputStream(out)
+
+    //placeholder for `checksum` and `update size`
+    out2.writeLong(0)
+    out2.writeInt(0)
+
+    out2.writeInt(shards.size)
+    out2.writeInt(keySize)
+    out2.writeInt(versionID.size)
+    out2.write(versionID.data)
+
+    for (s <- shards) {
+      out2.write(s._1.data)
+      out2.writeLong(s._2)
+      //versionID
+      out2.writeInt(s._3.size)
+      out2.write(s._3.data)
+    }
+
+    //now write file size and checksum
+    val ret = out.toByteArray
+    val wrap = ByteBuffer.wrap(ret)
+    wrap.putInt(8, ret.size)
+    wrap.putLong(0, ret.sum - 1000) //TODO better checksum
+    ret
+  }
+
+
+  protected[iodb] def deserializeShardSpec(in: DataInputStream): ShardSpec = {
+    val checksum = in.readLong()
+    val updateSize = in.readInt()
+    val b = new Array[Byte](updateSize)
+    in.read(b, 12, updateSize - 12)
+    //restore size
+    Utils.putInt(b, 8, updateSize)
+    //validate checksum
+    assert(b.sum - 1000 == checksum) // TODO better checksum
+
+    val in2 = new DataInputStream(new ByteArrayInputStream(b))
+    in2.readLong() //skip checksum
+    in2.readInt()
+    // skip updateSize
+    val keyCount = in2.readInt()
+    assert(keySize == in2.readInt())
+
+    val versionID = new VersionID(in2.readInt())
+    in2.read(versionID.data)
+    //read table
+    val keyFileNums = (0 until keyCount).map { index =>
+      val key = new K(keySize)
+      in2.read(key.data)
+      val fileNum = in2.readLong()
+      val versionID = new ByteArrayWrapper(in2.readInt())
+      in2.read(versionID.data)
+
+      (key, fileNum, versionID)
+    }
+
+    val specs = (0 until keyCount).map { i =>
+      ShardSpecEntry(
+        startKey = keyFileNums(i)._1,
+        endKey = if (i + 1 == keyCount) null else keyFileNums(i + 1)._1,
+        fileNum = keyFileNums(i)._2,
+        versionID = keyFileNums(i)._3
+      )
+    }
+
+    return new ShardSpec(versionID = versionID, shards = specs)
+  }
+
+  protected[iodb] def serializeUpdate(
                                         versionID: VersionID,
                                         prevVersionID: VersionID,
                                         toRemove: Iterable[K],
@@ -651,15 +707,6 @@ class LSMStore(
           fileNum = createEmptyShard()
           logFile = Nil
           shardKey2 = new ByteArrayWrapper(keySize) //lowest possible key
-          //write first entry into shard with start and end keys
-          updateAppend(fileNum = fileNum,
-            toRemove = List(shardKey2),
-            toUpdate = Nil,
-            versionID = tombstone,
-            prevVersionID = tombstone,
-            merged = false,
-            shardStartKey = shardKey2,
-            shardEndKey = null)
         } else {
           //use existing shard
           logFile = shards.get(shardKey)
@@ -671,9 +718,7 @@ class LSMStore(
           toRemove = toRemove, toUpdate = toUpdate,
           merged = logFile.isEmpty,
           versionID = versionID,
-          prevVersionID = logFile.headOption.map(_.versionID).getOrElse(tombstone),
-          shardStartKey = shardKey2,
-          shardEndKey = logFile.headOption.map(_.shardEndKey).getOrElse(null)
+          prevVersionID = logFile.headOption.map(_.versionID).getOrElse(tombstone)
         )
         logFile = updateEntry :: logFile
         shards.put(shardKey2, logFile)
@@ -689,22 +734,17 @@ class LSMStore(
       journalDirty = Nil
 
       //backup current shard layout
-      if (keepVersions > 0)
-        shardRollback.put(versionID, shards.clone().asInstanceOf[util.TreeMap[K, List[LogFileUpdate]]])
+      shardRollback.put(versionID, shards.clone().asInstanceOf[ShardLayout])
 
-      //destroy journal files if needed
-      if (keepVersions == 0) {
-        val lastFileNum = journalCurrentFileNum()
-        fileOuts.keySet.filter(_ < 0).foreach { fileNum =>
-          if (fileNum != lastFileNum)
-            fileOuts.remove(fileNum).get.close()
-        }
-        fileHandles.keySet.filter(_ < 0).foreach { fileNum =>
-          if (fileNum != lastFileNum)
-            fileAccess.close(fileHandles.remove(fileNum))
-        }
-        journalDeleteFilesButNewest()
-      }
+      initShardLayoutLog()
+      //update shard layout log
+      //write first entry into shard layout log
+      val data = serializeShardSpec(versionID = versionID,
+        shards = shards.asScala.map(u => (u._1, u._2.head.fileNum, u._2.head.versionID)).toSeq)
+      shardLayoutLog.write(data)
+      shardLayoutLog.getFD.sync()
+
+      taskCleanup()
     } finally {
       lock.writeLock().unlock()
     }
@@ -725,11 +765,10 @@ class LSMStore(
       val merged = keyValues(shard).toBuffer
       var mergedSliced: mutable.Buffer[mutable.Buffer[(K, V)]] =
         if (merged.size < splitSize) mutable.Buffer(merged) //no need to split shards
-        else merged.grouped(splitSize * 2 / 3).toBuffer // split large shard into multiple items
+        else merged.grouped(Math.max(1, splitSize * 2 / 3)).toBuffer // split large shard into multiple items
 
       var shardKey2 = shardKey
-      val parentShardEndKey = shard.head.shardEndKey
-      assert(parentShardEndKey == shards.higherKey(shardKey2))
+      val parentShardEndKey = shards.higherKey(shardKey)
 
       var shard2 = if (mergedSliced.size > 1) Nil else shard
       for (i <- 0 until mergedSliced.size) {
@@ -744,17 +783,7 @@ class LSMStore(
           shardKey2 = keyVal.head._1
           shard2 = Nil
         }
-        //write start and end keys
-        updateAppend(
-          fileNum = shardFileNum,
-          versionID = tombstone,
-          prevVersionID = tombstone,
-          toUpdate = Nil,
-          toRemove = if (shardEndKey == null) List(shardKey2) else List(shardKey2, shardEndKey),
-          merged = false,
-          shardStartKey = null,
-          shardEndKey = null
-        )
+
         assert(shardKey2 <= keyVal.head._1)
         assert(shardEndKey == null || keyVal.last._1 < shardEndKey)
         //TODO data are already sorted, updateAppend does not have to perform another sort
@@ -764,22 +793,13 @@ class LSMStore(
           prevVersionID = Store.tombstone,
           toUpdate = keyVal,
           toRemove = Nil,
-          merged = true,
-          shardStartKey = shardKey2,
-          shardEndKey = shardEndKey)
+          merged = true)
 
         shards.put(shardKey2, List(updateEntry))
         shard2 = null
         shardKey2 = null
       }
-      //release old file handles
-      val oldShardNum = shard.head.fileNum
-      if (keepVersions == 0) {
-        fileOuts.remove(oldShardNum).get.close()
-        fileAccess.close(fileHandles.remove(oldShardNum).get)
-        val deleted = numToFile(oldShardNum).delete()
-        assert(deleted, "shard file was not deleted")
-      }
+      taskCleanup()
     } finally {
       lock.writeLock().unlock()
     }
@@ -802,7 +822,7 @@ class LSMStore(
 
       //cut journal
       var notFound2 = true;
-      var lastShard: util.TreeMap[K, List[LogFileUpdate]] = null
+      var lastShard: ShardLayout = null
       val j = journalRollback
         //find starting version
         .dropWhile { u =>
@@ -835,6 +855,8 @@ class LSMStore(
       journalLastVersionID = Some(versionID)
 
       journalDirty = j
+
+      taskCleanup()
     } finally {
       lock.writeLock().unlock()
     }
@@ -848,6 +870,9 @@ class LSMStore(
       fileHandles.values.foreach(fileAccess.close(_))
       fileOuts.clear()
       fileHandles.clear()
+      if (shardLayoutLog != null)
+        shardLayoutLog.close()
+      taskCleanup()
     } finally {
       lock.writeLock().unlock()
     }
@@ -885,28 +910,96 @@ class LSMStore(
 
   def verify(): Unit = {
     //verify shard boundaries
-    shards.asScala.foldRight(null.asInstanceOf[K]) { (e: Tuple2[K, List[LogFileUpdate]], endKey: K) =>
-      e._2.foreach { u =>
-        assert(u.shardStartKey == e._1)
-        assert(u.shardEndKey == endKey)
-      }
-      val fileNum = e._2.head.fileNum
-      assert(fileHandles.contains(fileNum))
-      val updates = loadUpdates(file = numToFile(fileNum), fileNum = fileNum)
+    (List(shards) ++ shardRollback.values).foreach { s =>
+      s.asScala.foldRight(null.asInstanceOf[K]) { (e: Tuple2[K, List[LogFileUpdate]], endKey: K) =>
+        val fileNum = e._2.head.fileNum
+        assert(fileHandles.contains(fileNum))
+        val updates = loadUpdates(file = numToFile(fileNum), fileNum = fileNum)
 
-      updates.foreach { u =>
-        assert(u.shardStartKey == e._1)
-        assert(u.shardEndKey == endKey)
+        e._1
       }
-
-      e._1
     }
+
     val existFiles =
       (dir.listFiles().filter(isJournalFile(_)).map(journalFileToNum(_)) ++
         dir.listFiles().filter(isShardFile(_)).map(shardFileToNum(_))).toSet
 
     assert(existFiles == fileHandles.keySet)
     assert(existFiles == fileOuts.keySet)
+  }
+
+
+  def takeWhileExtra[A](iter: Iterable[A], f: A => Boolean): Iterable[A] = {
+    val ret = new ArrayBuffer[A]
+    val it = iter.iterator
+    while (it.hasNext) {
+      val x = it.next()
+      ret += x
+      if (!f(x))
+        return ret.result()
+    }
+    ret.result()
+  }
+
+  /** closes and deletes files which are no longer needed */
+  def taskCleanup(deleteFiles: Boolean = true): Unit = {
+    lock.writeLock().lock()
+    try {
+      if (fileOuts.isEmpty)
+        return
+      //this updates will be preserved
+      var index = Math.max(keepVersions, journalDirty.size)
+      //expand index until we find shard or reach end
+      while (index < journalRollback.size && !shardRollback.contains(journalRollback(index).versionID)) {
+        index += 1
+      }
+      index += 1
+
+      journalRollback = journalRollback.take(index)
+      //      if(!shardRollback.isEmpty)
+      //        journalRollback.lastOption.foreach(u=>assert(shardRollback.contains(u.versionID)))
+
+
+      //build set of files to preserve
+      val journalPreserveNums: Set[Long] = (journalRollback.map(_.fileNum) ++ List(journalCurrentFileNum())).toSet
+      assert(journalPreserveNums.contains(journalCurrentFileNum()))
+
+
+      //shards to preserve
+      val shardNumsToPreserve: Set[Long] =
+        (List(shards) ++ journalRollback.flatMap(u => shardRollback.get(u.versionID)))
+          .flatMap(_.values().asScala)
+          .flatMap(_.map(_.fileNum))
+          .toSet
+
+      val numsToPreserve = (journalPreserveNums ++ shardNumsToPreserve)
+      assert(numsToPreserve.forall(fileHandles.contains(_)))
+      assert(numsToPreserve.forall(fileOuts.contains(_)))
+
+      val deleteNums = (fileHandles.keySet diff numsToPreserve)
+
+      //delete unused journal files
+      for (num <- deleteNums) {
+        fileAccess.close(fileHandles.remove(num).get)
+        fileOuts.remove(num).get.close()
+        if (deleteFiles) {
+          val f = numToFile(num)
+          assert(f.exists())
+          val deleted = f.delete()
+          assert(deleted)
+        }
+      }
+
+      //cut unused shards
+      val versionsInJournalRollback = journalRollback.map(_.versionID).toSet
+      (shardRollback.keySet diff versionsInJournalRollback).foreach(shardRollback.remove(_))
+
+      //      if(!shardRollback.isEmpty)
+      //        journalRollback.lastOption.foreach(u=>assert(shardRollback.contains(u.versionID)))
+
+    } finally {
+      lock.writeLock().unlock()
+    }
   }
 }
 
@@ -929,9 +1022,12 @@ case class LogFileUpdate(
                           merged: Boolean,
                           fileNum: Long,
                           versionID: VersionID,
-                          prevVersionID: VersionID,
-                          shardStartKey: K,
-                          shardEndKey: K
+                          prevVersionID: VersionID
                         ) {
-  assert(shardEndKey == null || shardStartKey < shardEndKey)
+}
+
+case class ShardSpec(versionID: VersionID, shards: Seq[ShardSpecEntry])
+
+case class ShardSpecEntry(startKey: K, endKey: K, fileNum: Long, versionID: VersionID) {
+  assert((endKey == null && startKey != null) || startKey < endKey)
 }

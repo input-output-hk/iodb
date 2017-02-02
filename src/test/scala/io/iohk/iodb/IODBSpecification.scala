@@ -36,7 +36,6 @@ class IODBSpecification extends PropSpec
       ids = id +: ids
       i = i + 1
 
-      //      println(s"remove $toRemove, add ${Seq(id -> fValue)}")
       blocksStorage.update(
         id,
         toRemove,

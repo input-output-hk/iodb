@@ -190,4 +190,52 @@ class Utils {
             remaining -= read;
         }
     }
+
+
+    public static int getInt(byte[] buf, int pos) {
+        return
+                (((int) buf[pos++]) << 24) |
+                        (((int) buf[pos++] & 0xFF) << 16) |
+                        (((int) buf[pos++] & 0xFF) << 8) |
+                        (((int) buf[pos] & 0xFF));
+    }
+
+    public static void putInt(byte[] buf, int pos, int v) {
+        buf[pos++] = (byte) (0xff & (v >> 24));  //TODO PERF is >>> faster here? Also invert 0xFF &?
+        buf[pos++] = (byte) (0xff & (v >> 16));
+        buf[pos++] = (byte) (0xff & (v >> 8));
+        buf[pos] = (byte) (0xff & (v));
+    }
+
+
+    public static long getLong(byte[] buf, int pos) {
+        return
+                ((((long) buf[pos++]) << 56) |
+                        (((long) buf[pos++] & 0xFF) << 48) |
+                        (((long) buf[pos++] & 0xFF) << 40) |
+                        (((long) buf[pos++] & 0xFF) << 32) |
+                        (((long) buf[pos++] & 0xFF) << 24) |
+                        (((long) buf[pos++] & 0xFF) << 16) |
+                        (((long) buf[pos++] & 0xFF) << 8) |
+                        (((long) buf[pos] & 0xFF)));
+
+    }
+
+    public static void putLong(byte[] buf, int pos, long v) {
+        buf[pos++] = (byte) (0xff & (v >> 56));
+        buf[pos++] = (byte) (0xff & (v >> 48));
+        buf[pos++] = (byte) (0xff & (v >> 40));
+        buf[pos++] = (byte) (0xff & (v >> 32));
+        buf[pos++] = (byte) (0xff & (v >> 24));
+        buf[pos++] = (byte) (0xff & (v >> 16));
+        buf[pos++] = (byte) (0xff & (v >> 8));
+        buf[pos] = (byte) (0xff & (v));
+    }
+
+    public static void putLong(byte[] buf, int pos, long v, int vSize) {
+        for (int i = vSize - 1; i >= 0; i--) {
+            buf[i + pos] = (byte) (0xff & v);
+            v >>>= 8;
+        }
+    }
 }

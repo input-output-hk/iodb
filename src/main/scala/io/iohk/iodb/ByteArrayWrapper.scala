@@ -4,9 +4,6 @@ import java.io.Serializable
 import java.nio.ByteBuffer
 import java.util
 
-import org.mapdb.DataIO
-import scorex.crypto.encode.Base58
-
 object ByteArrayWrapper {
 
   def fromLong(id: Long): ByteArrayWrapper = {
@@ -45,9 +42,9 @@ case class ByteArrayWrapper(data: Array[Byte])
 
   override def toString: String = {
     val v = if (size == 8) {
-      DataIO.getLong(data, 0).toString + "L"
+      Utils.getLong(data, 0).toString + "L"
     } else {
-      Base58.encode(data)
+      javax.xml.bind.DatatypeConverter.printHexBinary(data)
     }
     getClass.getSimpleName + "[" + v + "]"
   }
