@@ -823,7 +823,7 @@ class LSMStore(
       if (journalRollback.isEmpty)
         notFound()
 
-      if (journalRollback.head.versionID == versionID)
+      if (journalDirty != Nil && journalDirty.head.versionID == versionID)
         return
 
       //cut journal
@@ -837,7 +837,7 @@ class LSMStore(
       }
       //find end version, where journal was sharded, also restore Shard Layout in side effect
       val j = journalRollback.takeWhile { u =>
-        lastShard = shardRollback.getOrElse(u.versionID, null)
+        lastShard = shardRollback.get(u.versionID).map(_.clone().asInstanceOf[ShardLayout]).getOrElse(null)
         lastShard == null
       }
 

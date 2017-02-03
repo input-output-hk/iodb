@@ -426,7 +426,7 @@ class LSMStoreTest extends TestWithTempDir {
       while (true)
         spec2 = store.deserializeShardSpec(in)
     } catch {
-      case _ =>
+      case _: Exception =>
     }
     assert(spec2.shards.size == store.shardRollback.last._2.size)
   }
@@ -459,6 +459,54 @@ class LSMStoreTest extends TestWithTempDir {
       }
       for (a <- i + step to limit) {
         assert(s.get(fromLong(a)) == None)
+      }
+      storeEquals(s, open)
+    }
+  }
+
+
+  @Test def rollback_reinsert(): Unit = {
+    def open = new LSMStore(
+      dir = dir, keySize = 8, splitSize = 20,
+      executor = null, maxFileSize = 1024,
+      maxJournalEntryCount = 10, maxShardUnmergedCount = 3,
+      keepVersions = 10000000)
+
+    val s = open
+
+    //fill
+    val limit: Long = 1000 + TestUtils.longTest() * 100000
+    val step: Long = 100
+    for (i <- 1L to limit by step) {
+      s.update(versionID = fromLong(i), toRemove = Nil,
+        toUpdate = (i until (i + step)).map(a => (fromLong(a), fromLong(a))))
+      storeEquals(s, open)
+    }
+
+    for (i <- (1L to limit by step).reverse) {
+      s.rollback(versionID = fromLong(i))
+      s.verify()
+      storeEquals(s, open)
+
+      for (a <- 1L until i + step) {
+        assert(s.get(fromLong(a)).get == fromLong(a))
+      }
+      for (a <- i + step to limit) {
+        assert(s.get(fromLong(a)) == None)
+      }
+      storeEquals(s, open)
+
+      s.update(versionID = fromLong(limit + i), toUpdate = Nil,
+        toRemove = (i until (i + step)).map(a => fromLong(a)))
+      for (a <- i until i + step) {
+        assert(s.get(fromLong(a)) == None)
+      }
+      storeEquals(s, open)
+      s.taskSharding()
+      storeEquals(s, open)
+      s.rollback(versionID = fromLong(i))
+      for (a <- i until i + step) {
+        assert(s.get(fromLong(a)) == Some(fromLong(a)))
       }
       storeEquals(s, open)
     }
