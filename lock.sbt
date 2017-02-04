@@ -6,16 +6,16 @@ dependencyOverrides in ThisBuild ++= Set(
   "ch.qos.logback" % "logback-core" % "1.1.9",
   "com.google.guava" % "guava" % "19.0",
   "com.novocode" % "junit-interface" % "0.11",
-  "jline" % "jline" % "2.12.1",
+  "jline" % "jline" % "2.14.1",
   "junit" % "junit" % "4.11",
   "org.hamcrest" % "hamcrest-core" % "1.3",
   "org.rocksdb" % "rocksdbjni" % "4.5.1",
-  "org.scala-lang.modules" % "scala-parser-combinators_2.11" % "1.0.4",
-  "org.scala-lang.modules" % "scala-xml_2.11" % "1.0.2",
+  "org.scala-lang.modules" % "scala-parser-combinators_2.12" % "1.0.4",
+  "org.scala-lang.modules" % "scala-xml_2.12" % "1.0.6",
   "org.scala-sbt" % "test-interface" % "1.0",
-  "org.scalacheck" % "scalacheck_2.11" % "1.12.6",
-  "org.scalactic" % "scalactic_2.11" % "2.3.0-SNAP2",
-  "org.scalatest" % "scalatest_2.11" % "2.3.0-SNAP2",
+  "org.scalacheck" % "scalacheck_2.12" % "1.13.4",
+  "org.scalactic" % "scalactic_2.12" % "3.0.1",
+  "org.scalatest" % "scalatest_2.12" % "3.0.1",
   "org.slf4j" % "slf4j-api" % "1.7.22"
 )
-// LIBRARY_DEPENDENCIES_HASH 771b3d32bde10a77050990598e03bc0766ea4a88
+// LIBRARY_DEPENDENCIES_HASH 734aefd00a3b218d5ae2432a1b257770ca5a26e6
