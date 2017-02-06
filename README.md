@@ -1,3 +1,4 @@
+# IODB - database engine for blockchains [![Build Status](https://travis-ci.org/input-output-hk/iodb.svg?branch=master)](https://travis-ci.org/input-output-hk/iodb)
 IODB is persistent key-value store. It is inspired by [RocksDB](http://rocksdb.org) .
 It has:
 
