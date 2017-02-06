@@ -26,8 +26,8 @@ class LSMStoreTest extends TestWithTempDir {
     }
     store.taskCleanup()
     //journal should only be single file, once sharding is completed
-    assert(store.fileHandles.keys.filter(_ < 0).size == 1)
-    assert(store.fileOuts.keys.filter(_ < 0).size == 1)
+    assert(store.fileHandles.keys.count(_ < 0) == 1)
+    assert(store.fileOuts.keys.count(_ < 0) == 1)
     assert(store.journalCache.isEmpty)
 
     //check shard was created
@@ -215,9 +215,6 @@ class LSMStoreTest extends TestWithTempDir {
   @Test def open_shard_File(): Unit = {
     val s = new LSMStore(dir = dir, keySize = 8)
 
-    val start = fromLong(100)
-    val end = fromLong(200)
-
     val f = s.numToFile(1)
     val out = new FileOutputStream(f)
     out.write(
@@ -243,7 +240,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     assert(updates ==
       List(
-        new LogFileUpdate(
+        LogFileUpdate(
           versionID = fromLong(100), prevVersionID = tombstone,
           merged = true,
           offset = 0,
@@ -251,7 +248,7 @@ class LSMStoreTest extends TestWithTempDir {
           keyCount = 1
         ),
 
-        new LogFileUpdate(
+        LogFileUpdate(
           versionID = fromLong(101), prevVersionID = fromLong(100),
           merged = false,
           offset = offset2.toInt,
@@ -293,7 +290,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     store.rollback(v2)
     assert(store.journalDirty.head.versionID == v2)
-    assert(store.get(key) == Some(fromLong(2)))
+    assert(store.get(key).contains(fromLong(2)))
 
     store.close()
   }
@@ -321,8 +318,8 @@ class LSMStoreTest extends TestWithTempDir {
 
     assert(shardFiles.isEmpty)
 
-    assert(store.fileHandles.keySet.filter(_ >= 0).isEmpty)
-    assert(store.fileOuts.keySet.filter(_ >= 0).isEmpty)
+    assert(!store.fileHandles.keySet.exists(_ >= 0))
+    assert(!store.fileOuts.keySet.exists(_ >= 0))
 
     assert(store.journalDirty.size == 2)
     assert(store(key) == fromLong(2))
@@ -336,7 +333,7 @@ class LSMStoreTest extends TestWithTempDir {
 
   @Test def getVersionIDEmpty(): Unit = {
     val store = new LSMStore(dir = dir)
-    assert(None == store.lastVersionID)
+    assert(store.lastVersionID.isEmpty)
   }
 
 
@@ -381,12 +378,12 @@ class LSMStoreTest extends TestWithTempDir {
   }
 
   @Test def ser_shard_spec: Unit = {
-    val spec0 = new ShardSpecEntry(fileNum = 1L, startKey = fromLong(0), endKey = fromLong(100), versionID = fromLong(111))
-    val spec1 = new ShardSpecEntry(fileNum = 2L, startKey = fromLong(100), endKey = fromLong(200), versionID = fromLong(222))
-    val spec2 = new ShardSpecEntry(fileNum = 3L, startKey = fromLong(200), endKey = null, versionID = fromLong(333))
+    val spec0 = ShardSpecEntry(fileNum = 1L, startKey = fromLong(0), endKey = fromLong(100), versionID = fromLong(111))
+    val spec1 = ShardSpecEntry(fileNum = 2L, startKey = fromLong(100), endKey = fromLong(200), versionID = fromLong(222))
+    val spec2 = ShardSpecEntry(fileNum = 3L, startKey = fromLong(200), endKey = null, versionID = fromLong(333))
 
     val s = List(spec0, spec1, spec2)
-    val e = new LogFileUpdate(offset = 0, keyCount = 0, merged = false, fileNum = 1L,
+    val e = LogFileUpdate(offset = 0, keyCount = 0, merged = false, fileNum = 1L,
       versionID = tombstone, prevVersionID = tombstone)
 
     val t = List((spec0.startKey, spec0.fileNum, spec0.versionID), (spec1.startKey, spec1.fileNum, spec1.versionID), (spec2.startKey, spec2.fileNum, spec2.versionID))
@@ -397,7 +394,7 @@ class LSMStoreTest extends TestWithTempDir {
     val in = new DataInputStream(new ByteArrayInputStream(b))
     val s2 = store.deserializeShardSpec(in)
     assert(in.read() == -1)
-    assert(s2 == new ShardSpec(versionID = fromLong(111L), s))
+    assert(s2 == ShardSpec(versionID = fromLong(111L), s))
   }
 
   @Test def shard_spec(): Unit = {
@@ -407,7 +404,7 @@ class LSMStoreTest extends TestWithTempDir {
     assert(store.shards.size == 1)
     val spec = store.deserializeShardSpec(
       new DataInputStream(new FileInputStream(new File(store.dir, LSMStore.shardLayoutLog))))
-    val e = new ShardSpecEntry(startKey = fromLong(0L), endKey = null, fileNum = 1L, versionID = fromLong(1L))
+    val e = ShardSpecEntry(startKey = fromLong(0L), endKey = null, fileNum = 1L, versionID = fromLong(1L))
     assert(spec == ShardSpec(versionID = fromLong(1L), List(e)))
 
     for (i <- 2 until 100) {
@@ -458,7 +455,7 @@ class LSMStoreTest extends TestWithTempDir {
         assert(s.get(fromLong(a)).get == fromLong(a))
       }
       for (a <- i + step to limit) {
-        assert(s.get(fromLong(a)) == None)
+        assert(s.get(fromLong(a)).isEmpty)
       }
       storeEquals(s, open)
     }
@@ -492,21 +489,21 @@ class LSMStoreTest extends TestWithTempDir {
         assert(s.get(fromLong(a)).get == fromLong(a))
       }
       for (a <- i + step to limit) {
-        assert(s.get(fromLong(a)) == None)
+        assert(s.get(fromLong(a)).isEmpty)
       }
       storeEquals(s, open)
 
       s.update(versionID = fromLong(limit + i), toUpdate = Nil,
         toRemove = (i until (i + step)).map(a => fromLong(a)))
       for (a <- i until i + step) {
-        assert(s.get(fromLong(a)) == None)
+        assert(s.get(fromLong(a)).isEmpty)
       }
       storeEquals(s, open)
       s.taskSharding()
       storeEquals(s, open)
       s.rollback(versionID = fromLong(i))
       for (a <- i until i + step) {
-        assert(s.get(fromLong(a)) == Some(fromLong(a)))
+        assert(s.get(fromLong(a)).contains(fromLong(a)))
       }
       storeEquals(s, open)
     }
