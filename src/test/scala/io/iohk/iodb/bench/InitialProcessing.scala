@@ -41,7 +41,7 @@ object InitialProcessing extends Benchmark {
     context.stop()
 
     var dir = TestUtils.tempDir()
-    bench(new LSMStore(dir, keySize = KeySize, keepSingleVersion = true), dir)
+    bench(new LSMStore(dir, keySize = KeySize), dir)
 
     System.gc()
     Thread.sleep(15000)

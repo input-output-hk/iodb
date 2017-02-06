@@ -21,11 +21,7 @@ object SimpleKVBench extends Benchmark{
       keyCount = args(1).toInt
     }
     var dir = TestUtils.tempDir()
-    val lb = bench(new LSMStore(dir, keySize = KeySize,
-      //      minMergeCount = 1,
-      //      minMergeSize = 128*1024,
-      //      splitSize = 16*1024,
-      keepSingleVersion = true
+    val lb = bench(new LSMStore(dir, keySize = KeySize
     ), dir)
     TestUtils.deleteRecur(dir)
     printlnResult(lb)
@@ -63,7 +59,7 @@ object SimpleKVBench extends Benchmark{
     val getTime = TestUtils.runningTimeUnit {
         val r = new Random(1)
         for (i <- 0 until updates) {
-          val toGet = (0 until keyCount).map { i =>
+          val toGet = (0 until keyCount).map { j =>
             randomKey(r)
           }
 

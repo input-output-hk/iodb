@@ -10,10 +10,6 @@ import scala.util.Random
   */
 object TestUtils {
 
-  lazy val shardInfoFileExt = Utils.shardInfoFileExt
-
-  def listFiles(dir: File, extension: String) = Utils.listFiles(dir, extension)
-
 
   def dirSize(dir: File): Long = dir.listFiles().map(_.length()).sum
 
