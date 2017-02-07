@@ -31,7 +31,7 @@ object LSMSpecification extends Commands {
 
   override def newSut(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): LSMStore = {
     val dir = TestUtils.tempDir()
-    val s = new LSMStore(dir, maxJournalEntryCount = 1000, keepVersions = 1000)
+    val s = new LSMStore(dir, maxJournalEntryCount = 1000, keepVersions = 100)
     s.update(state._1, state._5, state._4)
     s
   }
@@ -168,7 +168,7 @@ object LSMSpecification extends Commands {
     override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Option[ByteArrayWrapper]]): Prop = {
       val v = state._4.find{case (k, _) => key == k}.get._2
       val res = result.toOption.flatten.contains(v)
-      if(!res) println(s"key not found: $key") else println(s"key found: $key")
+      if(!res) println(s"key not found: $key") //else println(s"key found: $key")
       res
     }
   }
@@ -204,7 +204,9 @@ object LSMSpecification extends Commands {
 
 object CTL extends App {
     Test.check(new Test.Parameters.Default{
-      override val minSuccessfulTests: Int = 500
+      override val minSize: Int = 1000
+      override val maxSize: Int = 10000
+      override val minSuccessfulTests: Int = 3
       override val testCallback = new TestCallback {
         override def onTestResult(name: String, result: Result): Unit = {
           result.status match {
