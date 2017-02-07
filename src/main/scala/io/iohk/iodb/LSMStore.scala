@@ -71,11 +71,11 @@ class LSMStore(
       throw new IllegalArgumentException("dir does not exist, or is not an directory")
 
     // load all shard linked lists
-    val shardNums = dir.listFiles()
+    val shardNums = listFiles()
       .filter(isShardFile(_))
       .map(shardFileToNum(_))
 
-    val journalNumbers = dir.listFiles()
+    val journalNumbers = listFiles()
       .filter(isJournalFile(_))
       .map(journalFileToNum(_)) //add file number
       .sorted
@@ -282,7 +282,7 @@ class LSMStore(
   }
 
   protected[iodb] def journalListSortedFiles(): Seq[File] = {
-    dir.listFiles()
+    listFiles()
       .filter(isJournalFile(_))
       .sortBy(journalFileToNum(_))
   }
@@ -300,8 +300,15 @@ class LSMStore(
   protected[iodb] def isShardFile(f: File): Boolean =
     f.getName.matches(LSMStore.fileShardPrefix + "[0-9]+")
 
+  protected def listFiles(): Array[File] = {
+    var files: Array[File] = dir.listFiles()
+    if (files == null)
+      files = new Array[File](0)
+    return files
+  }
+
   protected[iodb] def shardListSortedFiles(): Seq[File] = {
-    dir.listFiles()
+    listFiles()
       .filter(isShardFile(_))
       .sortBy(shardFileToNum(_))
       .reverse
@@ -935,8 +942,8 @@ class LSMStore(
     }
 
     val existFiles =
-      (dir.listFiles().filter(isJournalFile(_)).map(journalFileToNum(_)) ++
-        dir.listFiles().filter(isShardFile(_)).map(shardFileToNum(_))).toSet
+      (listFiles().filter(isJournalFile(_)).map(journalFileToNum(_)) ++
+        listFiles().filter(isShardFile(_)).map(shardFileToNum(_))).toSet
 
     assert(existFiles == fileHandles.keySet)
     assert(existFiles == fileOuts.keySet)
