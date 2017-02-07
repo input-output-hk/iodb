@@ -6,7 +6,8 @@ import org.scalacheck.commands.Commands
 
 import scala.util.{Failure, Random, Success, Try}
 import org.scalacheck.Arbitrary.arbitrary
-import org.scalacheck.Test.{Failed, PropException, Result, TestCallback}
+import org.scalacheck.Test._
+import org.scalacheck.util.ConsoleReporter
 
 
 object LSMSpecification extends Commands {
@@ -23,7 +24,7 @@ object LSMSpecification extends Commands {
 
   type Sut = LSMStore
 
-  val initialState: State = (0, Map(0 -> 1), Map(), IndexedSeq(ByteArrayWrapper(Array.fill(32)(0:Byte)) -> ByteArrayWrapper.fromLong(5)), IndexedSeq())
+  val initialState: State = (0, Map(0 -> 1), Map(), IndexedSeq(ByteArrayWrapper(Array.fill(32)(0: Byte)) -> ByteArrayWrapper.fromLong(5)), IndexedSeq())
 
   override def canCreateNewSut(newState: (Version, AppendsIndex, RemovalsIndex, Appended, Removed),
                                initSuts: Traversable[(Version, AppendsIndex, RemovalsIndex, Appended, Removed)],
@@ -40,31 +41,24 @@ object LSMSpecification extends Commands {
 
   override def genCommand(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Gen[Command] = {
 
-    def genKey: Gen[ByteArrayWrapper] = Gen.listOfN(32, arbitrary[Byte]).map(_.toArray).map(ByteArrayWrapper.apply)
-
-    def genKV: Gen[(ByteArrayWrapper, ByteArrayWrapper)] = for{
-      k <- genKey
-      v <- arbitrary[Array[Byte]].map(ByteArrayWrapper.apply)
-    } yield (k, v)
-
     lazy val appendsCount = Random.nextInt(300) + 100
 
-    lazy val toAppend = (0 until appendsCount).map{_ =>
+    lazy val toAppend = (0 until appendsCount).map { _ =>
       val k = Array.fill(32)(Random.nextInt(Byte.MaxValue).toByte)
-      val v = Array.fill(Random.nextInt(100)+5)(Random.nextInt(Byte.MaxValue).toByte)
+      val v = Array.fill(Random.nextInt(100) + 5)(Random.nextInt(Byte.MaxValue).toByte)
       ByteArrayWrapper(k) -> ByteArrayWrapper(v)
     }
 
     lazy val remCount = Math.min(Random.nextInt(100), state._4.size)
 
-    lazy val toRemove = (0 until remCount).map {_ =>
+    lazy val toRemove = (0 until remCount).map { _ =>
       val ap = Random.nextInt(state._4.size)
       state._4(ap)._1
     }.filter(k => !state._5.contains(k)).toSet.toSeq
 
     lazy val genFwd = {
-     // println(s"toAppend: $toAppend")
-    //  println(s"toRemove: $toRemove")
+      // println(s"toAppend: $toAppend")
+      //  println(s"toRemove: $toRemove")
       Gen.const(AppendForward(state._1 + 1, toAppend, toRemove))
     }
 
@@ -94,9 +88,9 @@ object LSMSpecification extends Commands {
     lazy val genRollback = Gen.choose(2, 10).map(d => new Rollback(state._1 - d))
 
     val gf = Seq(500 -> genFwd, 50 -> genGetExisting, 1 -> genCleanup)
-    val gfr = if(state._5.isEmpty) gf else gf ++ Seq(30 -> genGetRemoved)
-    val gfrr = if(state._1 > 20) gfr ++ Seq(5 -> genRollback) else gfr
-    Gen.frequency(gfrr :_*)
+    val gfr = if (state._5.isEmpty) gf else gf ++ Seq(30 -> genGetRemoved)
+    val gfrr = if (state._1 > 20) gfr ++ Seq(2 -> genRollback) else gfr
+    Gen.frequency(gfrr: _*)
   }
 
   override def destroySut(sut: LSMStore): Unit = {
@@ -113,7 +107,7 @@ object LSMSpecification extends Commands {
       Try(sut.update(ByteArrayWrapper.fromLong(version), toRemove, toAppend))
 
     override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)):
-      (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = {
+    (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = {
       (version,
         state._2 ++ Seq((version, state._4.size + toAppend.size)),
         state._3 ++ Seq((version, state._5.size + toRemove.size)),
@@ -128,7 +122,7 @@ object LSMSpecification extends Commands {
     }
 
     override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Try[Unit]]): Prop = {
-      result.flatten match{
+      result.flatten match {
         case Success(_) => true
         case Failure(e) => println(e.getMessage); false
       }
@@ -166,14 +160,14 @@ object LSMSpecification extends Commands {
     override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = true
 
     override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Option[ByteArrayWrapper]]): Prop = {
-      val v = state._4.find{case (k, _) => key == k}.get._2
+      val v = state._4.find { case (k, _) => key == k }.get._2
       val res = result.toOption.flatten.contains(v)
-      if(!res) println(s"key not found: $key") //else println(s"key found: $key")
+      if (!res) println(s"key not found: $key") //else println(s"key found: $key")
       res
     }
   }
 
-  class GetRemoved(key: ByteArrayWrapper) extends Command{
+  class GetRemoved(key: ByteArrayWrapper) extends Command {
     override type Result = Option[ByteArrayWrapper]
 
     override def run(sut: LSMStore): Option[ByteArrayWrapper] = sut.get(key)
@@ -199,23 +193,24 @@ object LSMSpecification extends Commands {
 
     override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = true
   }
+
 }
 
 
 object CTL extends App {
-    Test.check(new Test.Parameters.Default{
-      override val minSize: Int = 1000
-      override val maxSize: Int = 10000
-      override val minSuccessfulTests: Int = 3
-      override val testCallback = new TestCallback {
+  Test.check(
+    Parameters.default
+      .withMinSize(2000)
+      .withMaxSize(16000)
+      .withMinSuccessfulTests(2)
+      .withTestCallback(new TestCallback {
         override def onTestResult(name: String, result: Result): Unit = {
           result.status match {
-            case f:Failed => //println(f)
-            case PropException(_, e, _) => e.printStackTrace()
+            case f: Failed => //println(f)
+            case PropException(_, e, _) => e.getStackTrace.take(20).map(println)
             case _ =>
           }
           println(s"passed : ${result.passed}")
         }
-      }
-    }, LSMSpecification.property())
+      }), LSMSpecification.property())
 }
