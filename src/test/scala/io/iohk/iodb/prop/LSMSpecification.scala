@@ -1,13 +1,11 @@
 package io.iohk.iodb.prop
 
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, TestUtils}
-import org.scalacheck.{Gen, Prop, Test}
+import org.scalacheck.{Gen, Prop}
 import org.scalacheck.commands.Commands
 
 import scala.util.{Failure, Random, Success, Try}
-import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Test._
-import org.scalacheck.util.ConsoleReporter
 
 
 object LSMSpecification extends Commands {
@@ -41,7 +39,7 @@ object LSMSpecification extends Commands {
 
   override def genCommand(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Gen[Command] = {
 
-    lazy val appendsCount = Random.nextInt(300) + 100
+    lazy val appendsCount = Random.nextInt(500) + 100
 
     lazy val toAppend = (0 until appendsCount).map { _ =>
       val k = Array.fill(32)(Random.nextInt(Byte.MaxValue).toByte)
@@ -57,8 +55,6 @@ object LSMSpecification extends Commands {
     }.filter(k => !state._5.contains(k)).toSet.toSeq
 
     lazy val genFwd = {
-      // println(s"toAppend: $toAppend")
-      //  println(s"toRemove: $toRemove")
       Gen.const(AppendForward(state._1 + 1, toAppend, toRemove))
     }
 
@@ -103,8 +99,10 @@ object LSMSpecification extends Commands {
   case class AppendForward(version: Version, toAppend: Seq[(ByteArrayWrapper, ByteArrayWrapper)], toRemove: Seq[ByteArrayWrapper]) extends Command {
     type Result = Try[Unit]
 
-    override def run(sut: LSMStore): Try[Unit] =
+    override def run(sut: LSMStore): Try[Unit] = {
+    //  println("appending: " + toAppend.size + " removing: " + toRemove.size)
       Try(sut.update(ByteArrayWrapper.fromLong(version), toRemove, toAppend))
+    }
 
     override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)):
     (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = {
@@ -129,10 +127,14 @@ object LSMSpecification extends Commands {
     }
   }
 
+  //todo: check that created after a rollback version element not exist anymore and that created before the rollback and deleted after element exists
   class Rollback(version: Version) extends Command {
     type Result = Try[Unit]
 
-    override def run(sut: LSMStore): Try[Unit] = Try(sut.rollback(ByteArrayWrapper.fromLong(version)))
+    override def run(sut: LSMStore): Try[Unit] = {
+      println("last store version: " + sut.lastVersionID)
+      Try(sut.rollback(ByteArrayWrapper.fromLong(version)))
+    }
 
     override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = {
       println(s"rolling back from ${state._1} to $version")
@@ -144,7 +146,7 @@ object LSMSpecification extends Commands {
     override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = state._1 > version
 
     override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Try[Unit]]): Prop = {
-      val res = result.flatten.isSuccess //&& (version == state._1)
+      val res = result.flatten.isSuccess
       if (!res) println("rollback failed: " + result.flatten)
       res
     }
@@ -162,7 +164,7 @@ object LSMSpecification extends Commands {
     override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Option[ByteArrayWrapper]]): Prop = {
       val v = state._4.find { case (k, _) => key == k }.get._2
       val res = result.toOption.flatten.contains(v)
-      if (!res) println(s"key not found: $key") //else println(s"key found: $key")
+      if (!res) println(s"key not found: $key")
       res
     }
   }
@@ -187,6 +189,7 @@ object LSMSpecification extends Commands {
     override def run(sut: LSMStore): Unit = {
       println("performing cleanup")
       sut.taskCleanup()
+      sut.verify()
     }
 
     override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = state
@@ -198,19 +201,12 @@ object LSMSpecification extends Commands {
 
 
 object CTL extends App {
-  Test.check(
-    Parameters.default
-      .withMinSize(2000)
-      .withMaxSize(16000)
-      .withMinSuccessfulTests(2)
-      .withTestCallback(new TestCallback {
-        override def onTestResult(name: String, result: Result): Unit = {
-          result.status match {
-            case f: Failed => //println(f)
-            case PropException(_, e, _) => e.getStackTrace.take(20).map(println)
-            case _ =>
-          }
-          println(s"passed : ${result.passed}")
-        }
-      }), LSMSpecification.property())
+
+  val params = Parameters.default
+    .withMinSize(1024)
+    .withMaxSize(2048)
+    .withMinSuccessfulTests(2)
+    .withWorkers(2)
+
+  LSMSpecification.property().check(params)
 }
