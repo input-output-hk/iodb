@@ -1,5 +1,7 @@
 package io.iohk.iodb.prop
 
+import java.io.File
+
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, TestUtils}
 import org.junit.Test
 import org.scalacheck.{Gen, Prop}
@@ -7,32 +9,43 @@ import org.scalacheck.commands.Commands
 
 import scala.util.{Failure, Random, Success, Try}
 import org.scalacheck.Test._
+import org.scalatest.BeforeAndAfterAll
 import org.scalatest.junit.JUnitSuite
 import org.scalatest.prop.Checkers
 
 
+class LSMSpecification extends JUnitSuite with Checkers with BeforeAndAfterAll {
 
-class LSMSpecification extends JUnitSuite with Checkers {
+  val dir1 = TestUtils.tempDir()
+  dir1.mkdirs()
 
-    val params = Parameters.default
-      .withMinSize(1024)
-      .withMaxSize(2048)
-      .withMinSuccessfulTests(2)
-      .withWorkers(2)
+  val dir2 = TestUtils.tempDir()
+  dir2.mkdirs()
 
-    //todo: pass working folder, create it before the test and delete after
-    //todo: pass initial set size? for now the set is only about 1 element
+  val params = Parameters.default
+    .withMinSize(1024)
+    .withMaxSize(2048)
+    .withMinSuccessfulTests(2)
+    .withWorkers(2)
 
-    @Test
-    def testConcat(): Unit = {
-      check(new LSMCommands(maxJournalEntryCount = 1000, keepVersion = 15).property(), params)
-      check(new LSMCommands(maxJournalEntryCount = 10, keepVersion = 1500).property(), params)
-    }
+  //todo: pass initial set size? for now the set is only about 1 element
+
+  @Test
+  def testLsm(): Unit = {
+    check(new LSMCommands(dir1, maxJournalEntryCount = 1000, keepVersion = 15).property(), params)
+    check(new LSMCommands(dir2, maxJournalEntryCount = 10, keepVersion = 1500).property(), params)
+  }
+
+
+  override protected def afterAll(): Unit = {
+    TestUtils.deleteRecur(dir1)
+    TestUtils.deleteRecur(dir2)
+  }
 }
 
 
 //todo: comments
-class LSMCommands(val maxJournalEntryCount:Int, val keepVersion:Int) extends Commands {
+class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersion: Int) extends Commands {
 
   type Version = Int
 
@@ -53,8 +66,7 @@ class LSMCommands(val maxJournalEntryCount:Int, val keepVersion:Int) extends Com
                                runningSuts: Traversable[LSMStore]): Boolean = true
 
   override def newSut(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): LSMStore = {
-    val dir = TestUtils.tempDir()
-    val s = new LSMStore(dir, maxJournalEntryCount = maxJournalEntryCount, keepVersions = keepVersion)
+    val s = new LSMStore(folder, maxJournalEntryCount = maxJournalEntryCount, keepVersions = keepVersion)
     s.update(state._1, state._5, state._4)
     s
   }
@@ -124,7 +136,7 @@ class LSMCommands(val maxJournalEntryCount:Int, val keepVersion:Int) extends Com
     type Result = Try[Unit]
 
     override def run(sut: LSMStore): Try[Unit] = {
-    //  println("appending: " + toAppend.size + " removing: " + toRemove.size)
+      //  println("appending: " + toAppend.size + " removing: " + toRemove.size)
       Try(sut.update(ByteArrayWrapper.fromLong(version), toRemove, toAppend))
     }
 
@@ -220,4 +232,5 @@ class LSMCommands(val maxJournalEntryCount:Int, val keepVersion:Int) extends Com
 
     override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = true
   }
+
 }
