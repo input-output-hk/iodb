@@ -1,14 +1,38 @@
 package io.iohk.iodb.prop
 
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, TestUtils}
+import org.junit.Test
 import org.scalacheck.{Gen, Prop}
 import org.scalacheck.commands.Commands
 
 import scala.util.{Failure, Random, Success, Try}
 import org.scalacheck.Test._
+import org.scalatest.junit.JUnitSuite
+import org.scalatest.prop.Checkers
 
 
-object LSMSpecification extends Commands {
+
+class LSMSpecification extends JUnitSuite with Checkers {
+
+    val params = Parameters.default
+      .withMinSize(1024)
+      .withMaxSize(2048)
+      .withMinSuccessfulTests(2)
+      .withWorkers(2)
+
+    //todo: pass working folder, create it before the test and delete after
+    //todo: pass initial set size? for now the set is only about 1 element
+
+    @Test
+    def testConcat(): Unit = {
+      check(new LSMCommands(maxJournalEntryCount = 1000, keepVersion = 15).property(), params)
+      check(new LSMCommands(maxJournalEntryCount = 10, keepVersion = 1500).property(), params)
+    }
+}
+
+
+//todo: comments
+class LSMCommands(val maxJournalEntryCount:Int, val keepVersion:Int) extends Commands {
 
   type Version = Int
 
@@ -30,7 +54,7 @@ object LSMSpecification extends Commands {
 
   override def newSut(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): LSMStore = {
     val dir = TestUtils.tempDir()
-    val s = new LSMStore(dir, maxJournalEntryCount = 1000, keepVersions = 100)
+    val s = new LSMStore(dir, maxJournalEntryCount = maxJournalEntryCount, keepVersions = keepVersion)
     s.update(state._1, state._5, state._4)
     s
   }
@@ -196,17 +220,4 @@ object LSMSpecification extends Commands {
 
     override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = true
   }
-
-}
-
-
-object CTL extends App {
-
-  val params = Parameters.default
-    .withMinSize(1024)
-    .withMaxSize(2048)
-    .withMinSuccessfulTests(2)
-    .withWorkers(2)
-
-  LSMSpecification.property().check(params)
 }
