@@ -28,7 +28,7 @@ resolvers ++= Seq("Sonatype Releases" at "https://oss.sonatype.org/content/repos
   "Typesafe maven releases" at "http://repo.typesafe.com/typesafe/maven-releases/")
 
 
-fork in run := true
+fork := true
 
 javaOptions in run ++= Seq(
   "-Xms2G", "-Xmx6G", "-XX:MaxPermSize=1024M", "-XX:+UseConcMarkSweepGC")
