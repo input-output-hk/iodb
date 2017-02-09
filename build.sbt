@@ -27,6 +27,12 @@ resolvers ++= Seq("Sonatype Releases" at "https://oss.sonatype.org/content/repos
   "SonaType" at "https://oss.sonatype.org/content/groups/public",
   "Typesafe maven releases" at "http://repo.typesafe.com/typesafe/maven-releases/")
 
+
+fork in run := true
+
+javaOptions in run ++= Seq(
+  "-Xms2G", "-Xmx6G", "-XX:MaxPermSize=1024M", "-XX:+UseConcMarkSweepGC")
+
 publishMavenStyle := true
 
 publishArtifact in Test := false
@@ -56,5 +62,4 @@ pomExtra :=
         <id>jan</id>
         <name>Jan Kotek</name>
       </developer>
-
     </developers>
