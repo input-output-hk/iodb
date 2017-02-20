@@ -235,8 +235,10 @@ class LSMStore(
       //put data size back so checksum is preserved
       buf.putInt(8, updateSize)
 
-      //verify checksum, TODO better checksum, IOException
-      assert(checksum == data.sum, "broken checksum")
+      //verify checksum
+      if (checksum != Utils.checksum(data)) {
+        throw new DataCorruptionException("Wrong data checksum")
+      }
 
       //read data from byte buffer
       buf.position(12)
@@ -502,7 +504,8 @@ class LSMStore(
     val ret = out.toByteArray
     val wrap = ByteBuffer.wrap(ret)
     wrap.putInt(8, ret.size)
-    wrap.putLong(0, ret.sum - 1000) //TODO better checksum
+    val checksum = Utils.checksum(ret) - 1000 // 1000 is to distinguish different type of data
+    wrap.putLong(0, checksum)
     ret
   }
 
@@ -515,7 +518,9 @@ class LSMStore(
     //restore size
     Utils.putInt(b, 8, updateSize)
     //validate checksum
-    assert(b.sum - 1000 == checksum) // TODO better checksum
+    if (Utils.checksum(b) - 1000 != checksum) {
+      throw new DataCorruptionException("Wrong data checksum")
+    }
 
     val in2 = new DataInputStream(new ByteArrayInputStream(b))
     in2.readLong() //skip checksum
@@ -622,7 +627,7 @@ class LSMStore(
     val ret = out.toByteArray
     val wrap = ByteBuffer.wrap(ret)
     wrap.putInt(8, ret.size)
-    wrap.putLong(0, ret.sum) //TODO better checksum
+    wrap.putLong(0, Utils.checksum(ret))
     ret
   }
 

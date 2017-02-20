@@ -1,5 +1,7 @@
 package io.iohk.iodb;
 
+import net.jpountz.xxhash.XXHash64;
+import net.jpountz.xxhash.XXHashFactory;
 import sun.misc.Cleaner;
 import sun.nio.ch.DirectBuffer;
 
@@ -237,5 +239,12 @@ class Utils {
             buf[i + pos] = (byte) (0xff & v);
             v >>>= 8;
         }
+    }
+
+    private static final XXHash64 hash64 = XXHashFactory.fastestJavaInstance().hash64();
+
+    public static long checksum(byte[] data) {
+        int seed = 0x3289989d;
+        return hash64.hash(data, 0, data.length, seed);
     }
 }
