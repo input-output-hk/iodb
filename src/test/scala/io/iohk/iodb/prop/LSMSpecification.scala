@@ -1,26 +1,18 @@
 package io.iohk.iodb.prop
 
-import java.io.File
-
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, TestUtils}
 import org.junit.Test
-import org.scalacheck.{Gen, Prop}
-import org.scalacheck.commands.Commands
-
-import scala.util.{Failure, Random, Success, Try}
 import org.scalacheck.Test._
+import org.scalacheck.commands.Commands
+import org.scalacheck.{Gen, Prop}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.junit.JUnitSuite
 import org.scalatest.prop.Checkers
 
+import scala.util.{Failure, Random, Success, Try}
+
 
 class LSMSpecification extends JUnitSuite with Checkers with BeforeAndAfterAll {
-
-  val dir1 = TestUtils.tempDir()
-  dir1.mkdirs()
-
-  val dir2 = TestUtils.tempDir()
-  dir2.mkdirs()
 
   val params = Parameters.default
     .withMinSize(1024)
@@ -32,20 +24,14 @@ class LSMSpecification extends JUnitSuite with Checkers with BeforeAndAfterAll {
 
   @Test
   def testLsm(): Unit = {
-    check(new LSMCommands(dir1, maxJournalEntryCount = 1000, keepVersion = 15).property(), params)
-    check(new LSMCommands(dir2, maxJournalEntryCount = 10, keepVersion = 1500).property(), params)
+    check(new LSMCommands(maxJournalEntryCount = 1000, keepVersion = 15).property(), params)
+    check(new LSMCommands(maxJournalEntryCount = 10, keepVersion = 1500).property(), params)
   }
 
-
-  override protected def afterAll(): Unit = {
-    TestUtils.deleteRecur(dir1)
-    TestUtils.deleteRecur(dir2)
-  }
 }
 
-
 //todo: comments
-class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersion: Int) extends Commands {
+class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends Commands {
 
   type Version = Int
 
@@ -55,25 +41,28 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
   type AppendsIndex = Map[Version, Int]
   type RemovalsIndex = Map[Version, Int]
 
-  type State = (Version, AppendsIndex, RemovalsIndex, Appended, Removed)
+  // type State = (Version, AppendsIndex, RemovalsIndex, Appended, Removed)
+  case class State(version: Version, appendsIndex: AppendsIndex, removalsIndex: RemovalsIndex, appended: Appended, removed: Removed)
+
 
   type Sut = LSMStore
 
-  val initialState: State = (0, Map(0 -> 1), Map(), IndexedSeq(ByteArrayWrapper(Array.fill(32)(0: Byte)) -> ByteArrayWrapper.fromLong(5)), IndexedSeq())
+  val initialState: State = State(0, Map(0 -> 1), Map(), IndexedSeq(ByteArrayWrapper(Array.fill(32)(0: Byte)) -> ByteArrayWrapper.fromLong(5)), IndexedSeq())
 
-  override def canCreateNewSut(newState: (Version, AppendsIndex, RemovalsIndex, Appended, Removed),
-                               initSuts: Traversable[(Version, AppendsIndex, RemovalsIndex, Appended, Removed)],
+  override def canCreateNewSut(newState: State,
+                               initSuts: Traversable[State],
                                runningSuts: Traversable[LSMStore]): Boolean = true
 
-  override def newSut(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): LSMStore = {
-    val s = new LSMStore(folder, maxJournalEntryCount = maxJournalEntryCount, keepVersions = keepVersion)
-    s.update(state._1, state._5, state._4)
+  override def newSut(state: State): LSMStore = {
+    val folder = TestUtils.tempDir()
+    val s = new LSMStore(folder, maxJournalEntryCount = maxJournalEntryCount, keepVersions = keepVersion /*, executor = null*/)
+    s.update(state.version, state.removed, state.appended)
     s
   }
 
-  override def initialPreCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = true
+  override def initialPreCondition(state: State): Boolean = true
 
-  override def genCommand(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Gen[Command] = {
+  override def genCommand(state: State): Gen[Command] = {
 
     lazy val appendsCount = Random.nextInt(500) + 100
 
@@ -83,24 +72,24 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
       ByteArrayWrapper(k) -> ByteArrayWrapper(v)
     }
 
-    lazy val remCount = Math.min(Random.nextInt(100), state._4.size)
+    lazy val remCount = Math.min(Random.nextInt(100), state.appended.size)
 
     lazy val toRemove = (0 until remCount).map { _ =>
-      val ap = Random.nextInt(state._4.size)
-      state._4(ap)._1
-    }.filter(k => !state._5.contains(k)).toSet.toSeq
+      val ap = Random.nextInt(state.appended.size)
+      state.appended(ap)._1
+    }.filter(k => !state.removed.contains(k)).toSet.toSeq
 
     lazy val genFwd = {
-      Gen.const(AppendForward(state._1 + 1, toAppend, toRemove))
+      Gen.const(AppendForward(state.version + 1, toAppend, toRemove))
     }
 
     lazy val genGetExisting = {
       var existingIdOpt: Option[ByteArrayWrapper] = None
 
       do {
-        val ap = Random.nextInt(state._4.size)
-        val eId = state._4(ap)._1
-        if (!state._5.contains(eId)) existingIdOpt = Some(eId)
+        val ap = Random.nextInt(state.appended.size)
+        val eId = state.appended(ap)._1
+        if (!state.removed.contains(eId)) existingIdOpt = Some(eId)
       } while (existingIdOpt.isEmpty)
 
       val existingId = existingIdOpt.get
@@ -109,19 +98,19 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
     }
 
     lazy val genGetRemoved = {
-      val rp = Random.nextInt(state._5.size)
-      val removedId = state._5(rp)
+      val rp = Random.nextInt(state.removed.size)
+      val removedId = state.removed(rp)
 
       Gen.const(new GetRemoved(removedId))
     }
 
     lazy val genCleanup = Gen.const(CleanUp)
 
-    lazy val genRollback = Gen.choose(2, 10).map(d => new Rollback(state._1 - d))
+    lazy val genRollback = Gen.choose(2, 10).map(d => new Rollback(state.version - d))
 
     val gf = Seq(500 -> genFwd, 50 -> genGetExisting, 1 -> genCleanup)
-    val gfr = if (state._5.isEmpty) gf else gf ++ Seq(30 -> genGetRemoved)
-    val gfrr = if (state._1 > 20) gfr ++ Seq(2 -> genRollback) else gfr
+    val gfr = if (state.removed.isEmpty) gf else gf ++ Seq(30 -> genGetRemoved)
+    val gfrr = if (state.version > 20) gfr ++ Seq(2 -> genRollback) else gfr
     Gen.frequency(gfrr: _*)
   }
 
@@ -130,7 +119,7 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
     TestUtils.deleteRecur(sut.dir)
   }
 
-  override def genInitialState: Gen[(Version, AppendsIndex, RemovalsIndex, Appended, Removed)] = Gen.const(initialState)
+  override def genInitialState: Gen[State] = Gen.const(initialState)
 
   case class AppendForward(version: Version, toAppend: Seq[(ByteArrayWrapper, ByteArrayWrapper)], toRemove: Seq[ByteArrayWrapper]) extends Command {
     type Result = Try[Unit]
@@ -140,22 +129,21 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
       Try(sut.update(ByteArrayWrapper.fromLong(version), toRemove, toAppend))
     }
 
-    override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)):
-    (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = {
-      (version,
-        state._2 ++ Seq((version, state._4.size + toAppend.size)),
-        state._3 ++ Seq((version, state._5.size + toRemove.size)),
-        state._4 ++ toAppend,
-        state._5 ++ toRemove
+    override def nextState(state: State): State = {
+      State(version,
+        state.appendsIndex ++ Seq((version, state.appended.size + toAppend.size)),
+        state.removalsIndex ++ Seq((version, state.removed.size + toRemove.size)),
+        state.appended ++ toAppend,
+        state.removed ++ toRemove
         )
     }
 
-    override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = {
+    override def preCondition(state: State): Boolean = {
       val keys = toAppend.map(_._1) ++ toRemove
-      (version == state._1 + 1) && (keys.toSet.size == keys.size)
+      (version == state.version + 1) && (keys.toSet.size == keys.size)
     }
 
-    override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Try[Unit]]): Prop = {
+    override def postCondition(state: State, result: Try[Try[Unit]]): Prop = {
       result.flatten match {
         case Success(_) => true
         case Failure(e) => println(e.getMessage); false
@@ -172,16 +160,16 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
       Try(sut.rollback(ByteArrayWrapper.fromLong(version)))
     }
 
-    override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = {
-      println(s"rolling back from ${state._1} to $version")
-      val ap = state._2(version)
-      val rp = state._3(version)
-      (version, state._2.filterKeys(_ > version), state._3.filterKeys(_ > version), state._4.take(ap), state._5.take(rp))
+    override def nextState(state: State): State = {
+      println(s"rolling back from ${state.version} to $version")
+      val ap = state.appendsIndex(version)
+      val rp = state.removalsIndex(version)
+      State(version, state.appendsIndex.filterKeys(_ > version), state.removalsIndex.filterKeys(_ > version), state.appended.take(ap), state.removed.take(rp))
     }
 
-    override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = state._1 > version
+    override def preCondition(state: State): Boolean = state.version > version
 
-    override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Try[Unit]]): Prop = {
+    override def postCondition(state: State, result: Try[Try[Unit]]): Prop = {
       val res = result.flatten.isSuccess
       if (!res) println("rollback failed: " + result.flatten)
       res
@@ -193,12 +181,12 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
 
     override def run(sut: LSMStore): Option[ByteArrayWrapper] = sut.get(key)
 
-    override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = state
+    override def nextState(state: State): State = state
 
-    override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = true
+    override def preCondition(state: State): Boolean = true
 
-    override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Option[ByteArrayWrapper]]): Prop = {
-      val v = state._4.find { case (k, _) => key == k }.get._2
+    override def postCondition(state: State, result: Try[Option[ByteArrayWrapper]]): Prop = {
+      val v = state.appended.find { case (k, _) => key == k }.get._2
       val res = result.toOption.flatten.contains(v)
       if (!res) println(s"key not found: $key")
       res
@@ -210,17 +198,17 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
 
     override def run(sut: LSMStore): Option[ByteArrayWrapper] = sut.get(key)
 
-    override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = state
+    override def nextState(state: State): State = state
 
-    override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = true
+    override def preCondition(state: State): Boolean = true
 
-    override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), result: Try[Option[ByteArrayWrapper]]): Prop = {
-      state._5.contains(key) && result.map(_.isEmpty).getOrElse(false)
+    override def postCondition(state: State, result: Try[Option[ByteArrayWrapper]]): Prop = {
+      state.removed.contains(key) && result.map(_.isEmpty).getOrElse(false)
     }
   }
 
   object CleanUp extends UnitCommand {
-    override def postCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed), success: Boolean): Prop = success
+    override def postCondition(state: State, success: Boolean): Prop = success
 
     override def run(sut: LSMStore): Unit = {
       println("performing cleanup")
@@ -228,9 +216,9 @@ class LSMCommands(val folder: File, val maxJournalEntryCount: Int, val keepVersi
       sut.verify()
     }
 
-    override def nextState(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): (Version, AppendsIndex, RemovalsIndex, Appended, Removed) = state
+    override def nextState(state: State): State = state
 
-    override def preCondition(state: (Version, AppendsIndex, RemovalsIndex, Appended, Removed)): Boolean = true
+    override def preCondition(state: State): Boolean = true
   }
 
 }
