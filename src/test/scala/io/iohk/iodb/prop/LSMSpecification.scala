@@ -24,7 +24,7 @@ class LSMSpecification extends JUnitSuite with Checkers with BeforeAndAfterAll {
 
   @Test
   def testLsm(): Unit = {
-    check(new LSMCommands(maxJournalEntryCount = 1000, keepVersion = 15).property(), params)
+    check(new LSMCommands(maxJournalEntryCount = 1000, keepVersion = 1500).property(), params)
     check(new LSMCommands(maxJournalEntryCount = 10, keepVersion = 1500).property(), params)
   }
 
@@ -130,6 +130,8 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
     }
 
     override def nextState(state: State): State = {
+      assert(state.appendsIndex.get(version) == None)
+      assert(state.removalsIndex.get(version) == None)
       State(version,
         state.appendsIndex ++ Seq((version, state.appended.size + toAppend.size)),
         state.removalsIndex ++ Seq((version, state.removed.size + toRemove.size)),
@@ -164,7 +166,7 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
       println(s"rolling back from ${state.version} to $version")
       val ap = state.appendsIndex(version)
       val rp = state.removalsIndex(version)
-      State(version, state.appendsIndex.filterKeys(_ > version), state.removalsIndex.filterKeys(_ > version), state.appended.take(ap), state.removed.take(rp))
+      State(version, state.appendsIndex.filterKeys(_ <= version), state.removalsIndex.filterKeys(_ <= version), state.appended.take(ap), state.removed.take(rp))
     }
 
     override def preCondition(state: State): Boolean = state.version > version
