@@ -66,7 +66,7 @@ class LSMStoreTest extends TestWithTempDir {
       log = update :: log
 
       //calculate merged content, check everything is there
-      val merged: Seq[(K, V)] = store.keyValues(log).toBuffer
+      val merged: Seq[(K, V)] = store.keyValues(log, dropTombstones = true).toBuffer
 
       assert(merged.size == ref.size)
       merged.foreach { p =>

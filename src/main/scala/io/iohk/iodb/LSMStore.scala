@@ -134,7 +134,7 @@ class LSMStore(
     //and cut journal, so it does not contain old entries
     journalDirty = j.takeWhile(u => !shardRollback.contains(u.versionID)).toList
     //restore journal cache
-    keyValues(journalDirty)
+    keyValues(journalDirty, dropTombstones = false)
       .foreach(a => journalCache.put(a._1, a._2))
 
     journalRollback = j.toList
@@ -665,7 +665,6 @@ class LSMStore(
   def get(key: K): Option[V] = {
     lock.readLock().lock()
     try {
-      //run binary search from newest to oldest updates on journal
       val ret2 = journalCache.get(key)
       if (ret2 eq tombstone)
         return None
@@ -776,7 +775,7 @@ class LSMStore(
 
       Utils.LOG.log(Level.FINE, "Starting sharding for shard: " + shardKey)
 
-      val merged = keyValues(shard).toBuffer
+      val merged = keyValues(shard, dropTombstones = true).toBuffer
       var mergedSliced: mutable.Buffer[mutable.Buffer[(K, V)]] =
         if (merged.size < splitSize) mutable.Buffer(merged) //no need to split shards
         else merged.grouped(Math.max(1, splitSize * 2 / 3)).toBuffer // split large shard into multiple items
@@ -835,6 +834,8 @@ class LSMStore(
       if (journalRollback.isEmpty)
         notFound()
 
+      journalRollback.find(_.versionID == versionID).getOrElse(notFound())
+
       if (journalDirty != Nil && journalDirty.head.versionID == versionID)
         return
 
@@ -867,7 +868,8 @@ class LSMStore(
       }
       //rebuild journal cache
       journalCache.clear()
-      keyValues(j).foreach { e =>
+
+      keyValues(j, dropTombstones = false).foreach { e =>
         journalCache.put(e._1, e._2)
       }
       journalLastVersionID = Some(versionID)
@@ -905,13 +907,15 @@ class LSMStore(
   }
 
 
-  protected[iodb] def keyValues(fileLog: List[LogFileUpdate]): Iterator[(K, V)] = {
+  protected[iodb] def keyValues(fileLog: List[LogFileUpdate], dropTombstones: Boolean): Iterator[(K, V)] = {
     //assert that all updates except last are merged
 
-    val iters = fileLog.map { u =>
+    val iters = fileLog.zipWithIndex.map { a =>
+      val u = a._1
+      val index = a._2
       fileAccess.readKeyValues(fileHandle = fileHandles(u.fileNum),
         offset = u.offset, keySize = keySize)
-        .map(p => (p._1, u.offset, p._2)).asJava
+        .map(p => (p._1, index, p._2)).asJava
     }.asJava.asInstanceOf[java.lang.Iterable[util.Iterator[(K, Int, V)]]]
 
     //merge multiple iterators, result iterator is sorted union of all iters
@@ -922,12 +926,12 @@ class LSMStore(
         val include =
           (prevKey == null || //first key
             !prevKey.equals(it._1)) && //is first version of this key
-            it._3 != null // only include if is not tombstone
+            (!dropTombstones || it._3 != null) // only include if is not tombstone
         prevKey = it._1
         include
       }
       //drop the tombstones
-      .filter(it => it._3 != Store.tombstone)
+      .filter(it => !dropTombstones || it._3 != Store.tombstone)
       //remove update
       .map(it => (it._1, it._3))
 
@@ -982,9 +986,6 @@ class LSMStore(
       index += 1
 
       journalRollback = journalRollback.take(index)
-      //      if(!shardRollback.isEmpty)
-      //        journalRollback.lastOption.foreach(u=>assert(shardRollback.contains(u.versionID)))
-
 
       //build set of files to preserve
       val journalPreserveNums: Set[Long] = (journalRollback.map(_.fileNum) ++ List(journalCurrentFileNum())).toSet
@@ -1027,6 +1028,9 @@ class LSMStore(
       lock.writeLock().unlock()
     }
   }
+
+  def rollbackVersions(): Iterable[VersionID] = journalRollback.map(_.versionID)
+
 }
 
 /** Compares key-value pairs. Key is used for comparation, value is ignored */
@@ -1034,9 +1038,11 @@ protected[iodb] object KeyOffsetValueComparator extends Comparator[(K, Int, V)] 
   def compare(o1: (K, Int, V),
               o2: (K, Int, V)): Int = {
     //compare by key
-    val c = o1._1.compareTo(o2._1)
-    //compare by reverse offset
-    if (c != 0) c else -o1._2.compareTo(o2._2)
+    var c = o1._1.compareTo(o2._1)
+    //compare by index, higher index means newer entry
+    if (c == 0)
+      c = o1._2.compareTo(o2._2)
+    return c
   }
 }
 
