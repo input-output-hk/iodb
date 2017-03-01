@@ -15,8 +15,8 @@ import scala.util.{Failure, Random, Success, Try}
 class LSMSpecification extends JUnitSuite with Checkers with BeforeAndAfterAll {
 
   val params = Parameters.default
-    .withMinSize(1024)
-    .withMaxSize(2048)
+    .withMinSize(100)
+    .withMaxSize(200)
     .withMinSuccessfulTests(2)
     .withWorkers(2)
 

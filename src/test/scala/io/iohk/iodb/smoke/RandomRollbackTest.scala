@@ -14,7 +14,7 @@ import scala.util.Random
 class RandomRollbackTest {
 
   val randomSeed = 111
-  val loops = 1000
+  val loops = 100
   val keepVersions = 100
 
   val maxRemoveBatchSize = 20
