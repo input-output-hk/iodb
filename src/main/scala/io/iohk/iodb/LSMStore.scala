@@ -818,6 +818,26 @@ class LSMStore(
     }
   }
 
+  override def getAll(consumer: (K, V) => Unit) = {
+    lock.readLock().lock()
+    try {
+      //iterate over all shards, and add content not present in journal
+      val shards2 = shards.values().asScala.toBuffer
+      for (shard: List[LogFileUpdate] <- shards2;
+           (k, v) <- keyValues(shard, dropTombstones = true)) {
+        if (!journalCache.containsKey(k)) {
+          consumer(k, v)
+        }
+      }
+      //include journal cache
+      for ((k, v) <- journalCache.asScala.filterNot(a => a._2 eq tombstone)) {
+        consumer(k, v)
+      }
+    } finally {
+      lock.readLock().unlock()
+    }
+  }
+
   override def clean(count: Int): Unit = {
     taskCleanup()
   }

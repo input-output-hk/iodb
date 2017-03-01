@@ -66,4 +66,7 @@ class RocksStore(val dir: File) extends Store {
   override def clean(count: Int): Unit = ???
 
   override def rollback(versionID: VersionID): Unit = ???
+
+  /** Get content of entire store */
+  override def getAll(consumer: (K, V) => Unit) = ???
 }

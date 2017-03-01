@@ -1,5 +1,7 @@
 package io.iohk.iodb
 
+import scala.collection.mutable
+
 object Store {
 
   /** type of key */
@@ -78,6 +80,26 @@ trait Store {
       consumer(key, value)
     }
   }
+
+  /** Get content of entire store. Result is not sorted. */
+  def getAll(): Iterator[(K, V)] = {
+    val ret = new mutable.ArrayBuffer[(K, V)]()
+    getAll { (k: K, v: V) =>
+      ret += ((k, v))
+    }
+    return ret.iterator
+  }
+
+  /**
+    * Get content of entire store and pass it to consumer.
+    * There might be too many entries to fit on heap.
+    * Iterators also cause problems for locking.
+    * So the consumer is preferred way to fetch all entries.
+    *
+    * @param consumer
+    */
+  def getAll(consumer: (K, V) => Unit)
+
 
   /**
     * Starts or resumes  background compaction.

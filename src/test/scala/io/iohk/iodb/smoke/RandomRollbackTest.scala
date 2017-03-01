@@ -101,6 +101,11 @@ class RandomRollbackTest {
 
       assert(versionsFromHistory == versionsFromStore)
 
+      val getAll = store.getAll()
+      assert(
+        getAll.toBuffer.sortBy[ByteArrayWrapper](_._1) ==
+          inserted.toBuffer.sortBy[ByteArrayWrapper](_._1))
+
     }
     deleteRecur(dir)
   }

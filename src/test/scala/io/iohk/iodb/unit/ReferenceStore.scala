@@ -47,4 +47,10 @@ class ReferenceStore extends Store {
   }
 
   override def close(): Unit = {}
+
+  override def getAll(consumer: (K, V) => Unit) = {
+    for ((k, v) <- current) {
+      consumer(k, v)
+    }
+  }
 }
