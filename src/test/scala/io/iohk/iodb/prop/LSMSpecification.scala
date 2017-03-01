@@ -158,12 +158,10 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
     type Result = Try[Unit]
 
     override def run(sut: LSMStore): Try[Unit] = {
-      println("last store version: " + sut.lastVersionID)
       Try(sut.rollback(ByteArrayWrapper.fromLong(version)))
     }
 
     override def nextState(state: State): State = {
-      println(s"rolling back from ${state.version} to $version")
       val ap = state.appendsIndex(version)
       val rp = state.removalsIndex(version)
       State(version, state.appendsIndex.filterKeys(_ <= version), state.removalsIndex.filterKeys(_ <= version), state.appended.take(ap), state.removed.take(rp))
@@ -213,7 +211,6 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
     override def postCondition(state: State, success: Boolean): Prop = success
 
     override def run(sut: LSMStore): Unit = {
-      println("performing cleanup")
       sut.taskCleanup()
       sut.verify()
     }
