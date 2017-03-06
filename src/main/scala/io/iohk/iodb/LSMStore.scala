@@ -29,7 +29,7 @@ protected[iodb] object LSMStore {
 
 import io.iohk.iodb.LSMStore._
 /**
-  * Created by jan on 18.1.17.
+  * Log-Structured Merge Store
   */
 class LSMStore(
                 val dir: File,
@@ -39,10 +39,11 @@ class LSMStore(
                 val maxShardUnmergedCount: Int = 4,
                 val splitSize: Int = 1024 * 1024,
                 val keepVersions: Int = 0,
-                val maxFileSize: Long = 64 * 1024 * 1024
+                val maxFileSize: Long = 64 * 1024 * 1024,
+
+                val fileAccess: FileAccess = FileAccess.SAFE
               ) extends Store {
 
-  val fileAccess: FileAccess = FileAccess.SAFE
 
   val lock = new ReentrantReadWriteLock()
 
@@ -208,7 +209,7 @@ class LSMStore(
     val journalFile = numToFile(fileNum)
     assert(!(journalFile.exists()))
 
-    val out = new FileOutputStream(journalFile)
+    val out = new FileOutputStream(journalFile, false)
     val fileHandle = fileAccess.open(journalFile.getPath)
     fileOuts(fileNum) = out
     fileHandles(fileNum) = fileHandle
@@ -441,6 +442,12 @@ class LSMStore(
     out.write(updateData)
     out.getFD.sync()
 
+    //update file size
+    val oldHandle = fileHandles(fileNum)
+    val newHandle = fileAccess.expandFileSize(oldHandle)
+    if (oldHandle != newHandle) {
+      fileHandles.put(fileNum, newHandle)
+    }
     //append new entry to journal
     return new LogFileUpdate(
       offset = updateOffset.toInt,
@@ -450,6 +457,7 @@ class LSMStore(
       versionID = versionID,
       prevVersionID = prevVersionID
     )
+
   }
 
   def taskRun(f: => Unit) {

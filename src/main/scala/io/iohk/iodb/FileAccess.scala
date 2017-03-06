@@ -7,7 +7,6 @@ import java.nio.file.StandardOpenOption
 import java.nio.{ByteBuffer, MappedByteBuffer}
 
 import io.iohk.iodb.Store._
-import io.iohk.iodb.Utils.keyCountOffset
 
 /**
   * Different ways to access files (RandomAccessFile, memory-mapped, direct mmap with Unsafe)
@@ -61,20 +60,50 @@ sealed abstract class FileAccess {
     */
   def close(file: Any)
 
+  /** If file size changes, the file handle must change as well.
+    * Usuall case is when file expands and the `ByteBuffer` expands
+    */
+  def expandFileSize(file: Any): Any = file
+
 }
 
 object FileAccess {
 
   abstract class ByteBufferFileAccess extends FileAccess {
 
-    /** casts parameter to MappedByteBuffer */
-    protected[iodb] def cast(fileHandle: Any) = fileHandle.asInstanceOf[MappedByteBuffer]
+    /** cast handle to MappedByteBuffer */
+    protected[iodb] def castBuf(fileHandle: Any): MappedByteBuffer =
+      fileHandle.asInstanceOf[(MappedByteBuffer, File)]._1
 
-    override def open(fileName: String): MappedByteBuffer = mmap(fileName)
+    /** cast handle to File */
+    protected[iodb] def castFile(fileHandle: Any): File =
+      fileHandle.asInstanceOf[(MappedByteBuffer, File)]._2
 
+    protected def checkBufferSize(file: Any): Unit = {
+      val bufSize = castBuf(file).limit
+      val fileSize = castFile(file).length()
+      assert(bufSize == fileSize, "File size has changed")
+    }
+
+    override def open(fileName: String): (MappedByteBuffer, File) = (mmap(fileName), new File(fileName))
+
+
+    /** If file size changes, the file handle must change as well.
+      * Usuall case is when file expands and the `ByteBuffer` expands
+      */
+    override def expandFileSize(fileHandle: Any): Any = {
+      val buf = castBuf(fileHandle)
+      val file = castFile(fileHandle)
+      if (buf.limit() == file.length())
+        return fileHandle
+
+      //file size has changed, remap
+      Utils.unmap(buf)
+      return (mmap(file.getPath), file)
+    }
 
     override def close(file: Any): Unit = {
-      Utils.unmap(cast(file))
+      Utils.unmap(castBuf(file))
     }
 
     /**
@@ -83,21 +112,22 @@ object FileAccess {
       * @param fileHandle for opened file
       * @return file size
       */
-    override def fileSize(fileHandle: Any): Long = cast(fileHandle).limit()
+    override def fileSize(fileHandle: Any): Long = castFile(fileHandle).length()
 
     //
-    //    /**
-    //      * Reads data from given offset
-    //      *
-    //      * @param fileHandle
-    //      * @param offset
-    //      * @param data
-    //      */
-    //    override def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit = {
-    //      val buf2 = cast(fileHandle).duplicate()
-    //      buf2.position(LogStore.headerSizeWithoutVersionID)
-    //      buf2.get(data)
-    //    }
+    /**
+      * Reads data from given offset
+      *
+      * @param fileHandle
+      * @param offset
+      * @param data
+      */
+    override def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit = {
+      checkBufferSize(fileHandle)
+      val buf2 = castBuf(fileHandle).duplicate()
+      buf2.position(offset)
+      buf2.get(data)
+    }
 
     /**
       * Read all key-value pairs from given log file
@@ -106,117 +136,113 @@ object FileAccess {
       * @return iterator over key-value pairs
       */
     override def readKeyValues(fileHandle: Any, offset: Long, keySize: Int): Iterator[(K, V)] = {
-      val buf = cast(fileHandle).duplicate()
-      val valueBuf = buf.duplicate()
-      buf.position(offset.toInt)
+      checkBufferSize(fileHandle)
+      val buf = castBuf(fileHandle).duplicate()
 
-      val count = buf.getInt(keyCountOffset)
-      (0 until count).map { i =>
+      val updateSize = buf.getInt(offset.toInt + 8)
+      val keyCount = buf.getInt(offset.toInt + 8 + 4)
+      assert(keyCount * keySize >= 0 && keyCount * keySize < updateSize)
+
+      val baseKeyOffset = offset.toInt + LSMStore.updateHeaderSize
+
+      return (0 until keyCount).map { i =>
+        val keyOffset = baseKeyOffset + i * keySize
+        buf.position(keyOffset)
         val key = new Array[Byte](keySize)
         buf.get(key)
 
-        //load value
+        //read pointers to value
+        buf.position(baseKeyOffset + keyCount * keySize + i * 8)
         val valueSize = buf.getInt()
-        val valueOffset = buf.getLong
         val value =
-          if (valueSize == -1) null
+          if (valueSize == -1) Store.tombstone
           else {
-            //TODO seek should not be necessary here
-            valueBuf.position(valueOffset.toInt)
+            val valueOffset = offset + buf.getInt()
+            buf.position(valueOffset.toInt)
             val value = new Array[Byte](valueSize)
-            valueBuf.get(value)
+            buf.get(value)
             ByteArrayWrapper(value)
           }
-        ByteArrayWrapper(key) -> value
+        (ByteArrayWrapper(key), value)
       }.iterator
     }
 
   }
 
-  //
-  //  /** use memory mapped files, fast but can cause problem on Windows.  */
-  //  object MMAP extends ByteBufferFileAccess {
-  //
-  //
-  //    override def getValue(fileHandle: Any, key: K, keySize: Int, baseKeyOffset: Long): V = {
-  //
-  //      val buf = cast(fileHandle).duplicate()
-  //
-  //      def loadValue(): V = {
-  //        //key found, load value
-  //        val valueSize = buf.getInt()
-  //        if (valueSize == -1)
-  //          return LogStore.tombstone //tombstone, return nothing
-  //
-  //        //load value
-  //        val valueOffset = buf.getLong()
-  //        buf.position(valueOffset.toInt)
-  //        val ret = new Array[Byte](valueSize)
-  //        buf.get(ret)
-  //        ByteArrayWrapper(ret)
-  //      }
-  //
-  //      val keySizeExtra = keySize + 4 + 8
-  //
-  //      val key2 = new Array[Byte](keySize)
-  //      val keyCount: Long = buf.getInt(keyCountOffset)
-  //      var lo: Long = 0
-  //      var hi: Long = keyCount - 1
-  //
-  //      while (lo <= hi) {
-  //
-  //        //split interval
-  //        val mid = (lo + hi) / 2
-  //        val keyOffset = baseKeyOffset + mid * keySizeExtra
-  //        //load key
-  //
-  //        buf.position(keyOffset.toInt)
-  //        buf.get(key2)
-  //        //compare keys and split intervals if not equal
-  //        val comp = Utils.BYTE_ARRAY_COMPARATOR.compare(key2, key.data)
-  //        if (comp < 0) lo = mid + 1
-  //        else if (comp > 0) hi = mid - 1
-  //        else {
-  //          return loadValue()
-  //        }
-  //      }
-  //      null
-  //    }
-  //  }
-  //
-  //
-  //  /** Use `sun.misc.Unsafe` with direct memory access. Very fast, but can cause JVM  and has problems on 32bit systems and Windows. */
-  //  object UNSAFE extends ByteBufferFileAccess {
-  //    override def getValue(fileHandle: Any, key: K, keySize: Int, baseKeyOffset: Long): V = {
-  //
-  //      val buf = cast(fileHandle).duplicate()
-  //
-  //      def loadValue(): V = {
-  //        //key found, load value
-  //        val valueSize = buf.getInt()
-  //        if (valueSize == -1)
-  //          return LogStore.tombstone //tombstone, return nothing
-  //
-  //        //load value
-  //        val valueOffset = buf.getLong()
-  //        buf.position(valueOffset.toInt)
-  //        val ret = new Array[Byte](valueSize)
-  //        buf.get(ret)
-  //        ByteArrayWrapper(ret)
-  //      }
-  //
-  //      val keySizeExtra = keySize + 4 + 8
-  //      val r = Utils.unsafeBinarySearch(buf, key.data, baseKeyOffset.toInt)
-  //      if (r < 0)
-  //        return null
-  //      val keyOffset = baseKeyOffset + r * keySizeExtra
-  //      //load key
-  //      buf.position(keyOffset.toInt + keySize)
-  //      return loadValue
-  //    }
-  //
-  //  }
-  //
+
+  /** use memory mapped files, fast but can cause problem on Windows.  */
+  object MMAP extends ByteBufferFileAccess {
+
+    override def getValue(fileHandle: Any, key: K, keySize: Int, updateOffset: Long): Option[V] = {
+      checkBufferSize(fileHandle)
+      val buf = castBuf(fileHandle).duplicate()
+
+      val keyCount = buf.getInt(updateOffset.toInt + 8 + 4)
+      val baseKeyOffset = updateOffset + LSMStore.updateHeaderSize
+
+      val key2 = new Array[Byte](keySize)
+      var lo: Int = 0
+      var hi: Int = keyCount - 1
+
+      while (lo <= hi) {
+        //split interval
+        val mid = (lo + hi) / 2
+        val keyOffset = baseKeyOffset + mid * keySize
+        //load key
+        buf.position(keyOffset.toInt)
+        buf.get(key2)
+        //compare keys and split intervals if not equal
+        val comp = Utils.BYTE_ARRAY_COMPARATOR.compare(key2, key.data)
+        if (comp < 0) lo = mid + 1
+        else if (comp > 0) hi = mid - 1
+        else {
+          //key found, load value
+          val valuePointersOffset = baseKeyOffset + keyCount * keySize + mid * 8
+          val valueSize = buf.getInt(valuePointersOffset.toInt)
+          if (valueSize == -1)
+            return None //tombstone, return nothing
+
+          //load value
+          val valueOffset = buf.getInt(valuePointersOffset.toInt + 4)
+          buf.position(updateOffset.toInt + valueOffset)
+          val ret = new Array[Byte](valueSize)
+          buf.get(ret)
+          return Some(ByteArrayWrapper(ret))
+        }
+      }
+      return null
+    }
+  }
+
+  /** Use `sun.misc.Unsafe` with direct memory access. Very fast, but can cause JVM  and has problems on 32bit systems and Windows. */
+  object UNSAFE extends ByteBufferFileAccess {
+    override def getValue(fileHandle: Any, key: K, keySize: Int, updateOffset: Long): Option[V] = {
+      checkBufferSize(fileHandle)
+      val buf = castBuf(fileHandle).duplicate()
+
+      val keyCount = buf.getInt(updateOffset.toInt + 8 + 4)
+      val baseKeyOffset = updateOffset + LSMStore.updateHeaderSize
+
+      val r = Utils.unsafeBinarySearch(buf, key.data, baseKeyOffset.toInt, keyCount)
+      if (r < 0)
+        return null
+
+      //key found, load value
+      val valuePointersOffset = baseKeyOffset + keyCount * keySize + r * 8
+      val valueSize = buf.getInt(valuePointersOffset.toInt)
+      if (valueSize == -1)
+        return None //tombstone, return nothing
+
+      //load value
+      val valueOffset = buf.getInt(valuePointersOffset.toInt + 4)
+      buf.position(updateOffset.toInt + valueOffset)
+      val ret = new Array[Byte](valueSize)
+      buf.get(ret)
+      return Some(ByteArrayWrapper(ret))
+    }
+
+  }
+
   /**
     * Use `FileChannel` to access files. Slower, but safer. Keeps many file handles open,
     * and might cause crash if 'maximal number of open files per process' is exceed.
@@ -226,19 +252,11 @@ object FileAccess {
     protected def cast(fileHandle: Any) = fileHandle.asInstanceOf[FileChannel]
 
     override def getValue(fileHandle: Any, key: K, keySize: Int, updateOffset: Long): Option[V] = {
-
-      //      //verify checksum
-      //      val checksum = readLong(c, updateOffset, tempBuf)
-      //      val bufChecksum = ByteBuffer.allocate(updateSize-8)
-      //      Utils.readFully(c, updateOffset+8, bufChecksum)
-      //      assert(checksum == bufChecksum.array.sum) //TODO checksum will change
-
-
       val c = cast(fileHandle)
       val tempBuf = ByteBuffer.allocate(8)
 
       //get size
-      val updateSize = readInt(c, updateOffset + 8, tempBuf)
+      //      val updateSize = readInt(c, updateOffset + 8, tempBuf)
       val keyCount: Long = readInt(c, updateOffset + 8 + 4, tempBuf)
 
       val baseKeyOffset = updateOffset + LSMStore.updateHeaderSize
@@ -249,7 +267,6 @@ object FileAccess {
       var hi: Long = keyCount - 1
 
       while (lo <= hi) {
-
         //split interval
         val mid = (lo + hi) / 2
         val keyOffset = baseKeyOffset + mid * keySize
@@ -262,13 +279,12 @@ object FileAccess {
         else if (comp > 0) hi = mid - 1
         else {
           //key found, read size and offset
-          val valuePointersOffset = baseKeyOffset + keyCount * (keySize) + mid * 8
+          val valuePointersOffset = baseKeyOffset + keyCount * keySize + mid * 8
           val valueSize = readInt(c, valuePointersOffset, tempBuf)
           if (valueSize == -1)
             return None
           //tombstone, return nothing
           val valueOffset = readInt(c, valuePointersOffset + 4, tempBuf)
-
           //load value
           return Some(readData(c, updateOffset + valueOffset, valueSize))
         }
@@ -316,7 +332,7 @@ object FileAccess {
 
       val baseKeyOffset = offset + LSMStore.updateHeaderSize
 
-      val ret = (0 until keyCount).map { i =>
+      return (0 until keyCount).map { i =>
         val keyOffset = baseKeyOffset + i * keySize
         val key = readData(c, keyOffset, keySize)
 
@@ -329,8 +345,7 @@ object FileAccess {
             readData(c, offset + valueOffset, valueSize)
           }
         (key, value)
-      }
-      return ret.iterator
+      }.iterator
     }
 
     override def open(fileName: String): Any = {
@@ -400,9 +415,11 @@ object FileAccess {
   protected def mmap(fileName: String): MappedByteBuffer = {
     val file = new File(fileName)
     val c = FileChannel.open(file.toPath, StandardOpenOption.READ)
-    val ret = c.map(MapMode.READ_ONLY, 0, file.length())
-    c.close()
-    ret
+    try {
+      return c.map(MapMode.READ_ONLY, 0, c.size())
+    } finally {
+      c.close()
+    }
   }
 
 

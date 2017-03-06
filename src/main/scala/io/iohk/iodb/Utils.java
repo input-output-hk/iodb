@@ -118,14 +118,14 @@ class Utils {
         return Long.reverseBytes(l);
     }
 
-    static int unsafeBinarySearch(ByteBuffer keys, byte[] key, int baseKeyOffset) {
+    static int unsafeBinarySearch(ByteBuffer keys, byte[] key, int baseKeyOffset, int keyCount) {
         long bufAddress = ((sun.nio.ch.DirectBuffer) keys).address() + baseKeyOffset;
 
         long[] keyParsed = parseKey(key);
         int keySize = key.length;
 
         int lo = 0;
-        int hi = keys.getInt(keyCountOffset) - 1; // key count offset
+        int hi = keyCount - 1; // key count offset
         while (lo <= hi) {
             int mid = (lo + hi) / 2;
             int comp = unsafeCompare(bufAddress, mid, keySize, keyParsed);
@@ -140,7 +140,7 @@ class Utils {
     }
 
     private static int unsafeCompare(long bufAddress, int mid, int keySize, long[] keyParsed) {
-        bufAddress = bufAddress + mid * (keySize + 4 + 8);
+        bufAddress = bufAddress + mid * (keySize);
         int offset = -1;
         for (long keyPart : keyParsed) {
             long v = unsafeGetLong(bufAddress + offset) & 0xFFFFFFFFFFFFFFL;
