@@ -31,8 +31,7 @@ resolvers ++= Seq("Sonatype Releases" at "https://oss.sonatype.org/content/repos
 
 fork := true
 
-javaOptions in run ++= Seq(
-  "-Xms2G", "-Xmx6G", "-XX:MaxPermSize=1024M", "-XX:+UseConcMarkSweepGC")
+javaOptions in run ++= Seq("-Xmx1G")
 
 publishMavenStyle := true
 
