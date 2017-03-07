@@ -29,7 +29,7 @@ resolvers ++= Seq("Sonatype Releases" at "https://oss.sonatype.org/content/repos
   "Typesafe maven releases" at "http://repo.typesafe.com/typesafe/maven-releases/")
 
 
-fork := true
+//fork := true
 
 javaOptions in run ++= Seq("-Xmx1G")
 
