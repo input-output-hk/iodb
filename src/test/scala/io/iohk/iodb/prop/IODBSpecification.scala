@@ -58,6 +58,24 @@ class IODBSpecification extends PropSpec
         case Some(v) => throw new Error(s"Id $id} is defined after delete")
       }
     }
+    ids.foreach(id => blocksStorage.rollbackVersions().exists(_ == id) shouldBe true)
+
+  }
+
+  property("rollback test") {
+    val blocksStorage = new LSMStore(iFile)
+    val initialVersion = blocksStorage.lastVersionID.get
+    forAll { (key: String, value: Array[Byte]) =>
+
+      val id = hash(new String(value) + key)
+      val fValue: ByteArrayWrapper = ByteArrayWrapper(value)
+
+      blocksStorage.update(id, Seq(), Seq(id -> fValue))
+      blocksStorage.lastVersionID.get should not equal initialVersion
+      blocksStorage.rollback(initialVersion)
+      blocksStorage.lastVersionID.get shouldEqual initialVersion
+
+    }
 
   }
 
