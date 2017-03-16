@@ -6,6 +6,7 @@ import io.iohk.iodb.{ByteArrayWrapper, LSMStore, TestUtils}
 import org.scalatest.prop.{GeneratorDrivenPropertyChecks, PropertyChecks}
 import org.scalatest.{BeforeAndAfterAll, Matchers, PropSpec}
 
+import scala.annotation.tailrec
 import scala.util.Random
 
 @org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
@@ -35,8 +36,9 @@ class IODBSpecification extends PropSpec
       (0 until Random.nextInt(100)).map(i => (randomBytes(), randomBytes()))
     }
 
-    val blockchain: IndexedSeq[BlockChanges] = {
-      def loop(acc: IndexedSeq[BlockChanges], existingKeys: Seq[ByteArrayWrapper]): IndexedSeq[BlockChanges] = {
+    val (blockchain: IndexedSeq[BlockChanges], existingKeys: Seq[ByteArrayWrapper]) = {
+      @tailrec
+      def loop(acc: IndexedSeq[BlockChanges], existingKeys: Seq[ByteArrayWrapper]): (IndexedSeq[BlockChanges], Seq[ByteArrayWrapper]) = {
         if (acc.length < NumberOfBlocks) {
           val toInsert = generateBytes()
           val toRemove: Seq[ByteArrayWrapper] = existingKeys.filter(k => Random.nextBoolean())
@@ -44,7 +46,7 @@ class IODBSpecification extends PropSpec
           val newBlock = BlockChanges(randomBytes(), toRemove, toInsert)
           loop(newBlock +: acc, newExistingKeys)
         } else {
-          acc
+          (acc, existingKeys)
         }
       }
       loop(IndexedSeq.empty, Seq.empty)
@@ -74,6 +76,8 @@ class IODBSpecification extends PropSpec
       blockStorage.lastVersionID.get shouldEqual finalVersion
       storageHash(blockStorage) shouldEqual finalHash
     }
+
+    existingKeys.foreach(ek => blockStorage.get(ek).isDefined shouldBe true)
   }
 
   property("writeKey test") {
