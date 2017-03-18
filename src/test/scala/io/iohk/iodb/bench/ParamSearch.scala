@@ -31,7 +31,7 @@ object ParamSearch {
          maxShardUnmergedCount <- maxShardUnmergedCount2;
          splitSize <- splitSize2;
          maxFileSize <- maxFileSize2
-    ) {
+    ) try {
       val dir = TestUtils.tempDir()
       val store = new LSMStore(
         dir = dir,
@@ -43,6 +43,7 @@ object ParamSearch {
       )
 
       val result = SimpleKVBench.bench(store = store, dir = dir, updates = updates, keyCount = keyCount)
+      store.close()
       TestUtils.deleteRecur(dir)
 
       println("================")
@@ -53,6 +54,8 @@ object ParamSearch {
       println("size: " + result.storeSizeMb)
       println("insert time: " + result.insertTime)
       println("get time: " + result.getTime)
+    } catch {
+      case e: Throwable => e.printStackTrace()
     }
   }
 
