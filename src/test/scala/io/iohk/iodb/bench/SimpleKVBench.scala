@@ -12,22 +12,27 @@ case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSi
   */
 object SimpleKVBench extends Benchmark{
 
-  var updates = 1000
-  var keyCount = 100
+  var defaultUpdates = 1000
+  var defaultKeyCount = 100
 
   def main(args: Array[String]) {
-    if (args.length > 0) {
-      updates = args(0).toInt
-      keyCount = args(1).toInt
-    }
+    val updates = if (args.length > 0) args(0).toInt else defaultUpdates
+    val keyCount = if (args.length > 0) args(0).toInt else defaultKeyCount
     var dir = TestUtils.tempDir()
-    val lb = bench(new LSMStore(dir, keySize = KeySize
-    ), dir)
+    val lb = bench(
+      store = new LSMStore(dir, keySize = KeySize),
+      dir = dir,
+      updates = updates,
+      keyCount = keyCount)
     TestUtils.deleteRecur(dir)
     printlnResult(lb)
 
     dir = TestUtils.tempDir()
-    val rb = bench(new RocksStore(dir), dir)
+    val rb = bench(
+      store = new RocksStore(dir),
+      dir = dir,
+      updates = updates,
+      keyCount = keyCount)
     printlnResult(rb)
     TestUtils.deleteRecur(dir)
 
@@ -39,7 +44,7 @@ object SimpleKVBench extends Benchmark{
     }
   }
 
-  def bench(store: Store, dir: File): BenchResult = {
+  def bench(store: Store, dir: File, updates: Int, keyCount: Int): BenchResult = {
     val r = new Random(1)
     var version = 0
     //insert random values
