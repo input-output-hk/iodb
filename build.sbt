@@ -16,6 +16,7 @@ libraryDependencies ++= Seq(
   "org.scalacheck" %% "scalacheck" % "1.13.4" % "test",
   "com.novocode" % "junit-interface" % "0.11" % "test",
   "org.rocksdb" % "rocksdbjni" % "4.5.1" % "test",
+  "org.iq80.leveldb" % "leveldb" % "0.9" % "test",
   "org.slf4j" % "slf4j-api" % "1.+",
   "ch.qos.logback" % "logback-classic" % "1.+" % "test"
 )
