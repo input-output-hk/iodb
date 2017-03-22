@@ -771,6 +771,20 @@ class LSMStore(
     }
   }
 
+
+  // takes first N items from iterator,
+  // Iterator.take() can not be used, read scaladoc
+  private def take(count: Int, iter: Iterator[(K, V)]): Iterable[(K, V)] = {
+    val ret = new ArrayBuffer[(K, V)]()
+    var counter = 0;
+    while (counter < count && iter.hasNext) {
+      counter += 1
+      ret += iter.next()
+    }
+    return ret;
+  }
+
+
   def taskShardMerge(shardKey: K): Unit = {
     lock.writeLock().lock()
     try {
@@ -783,42 +797,55 @@ class LSMStore(
 
       Utils.LOG.log(Level.FINE, "Starting sharding for shard: " + shardKey)
 
-      val merged = keyValues(shard, dropTombstones = true).toBuffer
-      var mergedSliced: mutable.Buffer[mutable.Buffer[(K, V)]] =
-        if (merged.size < splitSize) mutable.Buffer(merged) //no need to split shards
-        else merged.grouped(Math.max(1, splitSize * 2 / 3)).toBuffer // split large shard into multiple items
+      //iterator over merged data set
+      val b = keyValues(shard, dropTombstones = true).toBuffer
+      val merged = b.iterator
 
-      var shardKey2 = shardKey
-      val parentShardEndKey = shards.higherKey(shardKey)
+      // decide if this will be put into single shard, or will be split between multiple shards
+      // Load on-heap enough elements to fill single shard
+      var mergedFirstShard = take(splitSize, merged)
 
-      var shard2 = if (mergedSliced.size > 1) Nil else shard
-      for (i <- 0 until mergedSliced.size) {
-        val keyVal = mergedSliced(i)
-        val shardEndKey: K =
-          if (i + 1 == mergedSliced.size) parentShardEndKey
-          else mergedSliced(i + 1).head._1
-
-        val shardFileNum = createEmptyShard()
-        if (shard2 == null) {
-          //start new shard at given key
-          shardKey2 = keyVal.head._1
-          shard2 = Nil
-        }
-
-        assert(shardKey2 <= keyVal.head._1)
-        assert(shardEndKey == null || keyVal.last._1 < shardEndKey)
-        //TODO data are already sorted, updateAppend does not have to perform another sort
+      // Decide if all data go into single shard.
+      if (!merged.hasNext) {
+        // Data are small enough, keep everything in single shard
         val updateEntry = updateAppend(
-          fileNum = shardFileNum,
+          fileNum = createEmptyShard(),
           versionID = shard.head.versionID,
           prevVersionID = Store.tombstone,
-          toUpdate = keyVal,
+          toUpdate = mergedFirstShard,
           toRemove = Nil,
           merged = true)
+        shards.put(shardKey, List(updateEntry))
+      } else {
+        // split data into multiple shards
+        val mergedBuf: BufferedIterator[(K, V)] = (mergedFirstShard.iterator ++ merged).buffered
+        mergedFirstShard = null
+        //release for GC
+        val splitSize2: Int = Math.max(1, (splitSize.toDouble * 0.33).toInt)
+        val parentShardEndKey = shards.higherKey(shardKey)
 
-        shards.put(shardKey2, List(updateEntry))
-        shard2 = null
-        shardKey2 = null
+        var startKey: K = shardKey
+        while (mergedBuf.hasNext) {
+          val keyVals = take(splitSize2, mergedBuf)
+
+          val endKey = if (mergedBuf.hasNext) mergedBuf.head._1 else parentShardEndKey
+          assert(keyVals.map(_._1).forall(k => k >= startKey && (endKey == null || k < endKey)))
+
+          assert(endKey == null || startKey < endKey)
+
+          val updateEntry = updateAppend(
+            fileNum = createEmptyShard(),
+            versionID = shard.head.versionID,
+            prevVersionID = Store.tombstone,
+            toUpdate = keyVals,
+            toRemove = Nil,
+            merged = true
+          )
+
+          shards.put(startKey, List(updateEntry))
+
+          startKey = endKey
+        }
       }
       taskCleanup()
     } finally {

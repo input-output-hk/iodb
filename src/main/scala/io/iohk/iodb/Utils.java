@@ -49,12 +49,12 @@ class Utils {
             return null;
         }
     }
-    public static final Comparator<byte[]> BYTE_ARRAY_COMPARATOR = new Comparator<byte[]>() {
-        @Override
-        public int compare(byte[] o1, byte[] o2) {
-            return Utils.compare(o1, o2);
-        }
-    };
+
+    /**
+     * Compares primitive Byte Arrays.
+     * It uses unsigned binary comparation; so the byte with negative value is always higher than byte with non-negative value.
+     */
+    public static final Comparator<byte[]> BYTE_ARRAY_COMPARATOR = (o1, o2) -> compare(o1, o2);
 
     public static int compare(byte[] o1, byte[] o2) {
 //            if (o1 == o2) return 0;
