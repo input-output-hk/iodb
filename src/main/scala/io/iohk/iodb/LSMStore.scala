@@ -35,9 +35,9 @@ class LSMStore(
                 val dir: File,
                 val keySize: Int = 32,
                 val executor: Executor = Executors.newCachedThreadPool(),
-                val maxJournalEntryCount: Int = 1000000,
+                val maxJournalEntryCount: Int = 100000,
                 val maxShardUnmergedCount: Int = 4,
-                val splitSize: Int = 1024 * 1024,
+                val splitSize: Int = 100 * 1024,
                 val keepVersions: Int = 0,
                 val maxFileSize: Long = 64 * 1024 * 1024,
 
@@ -816,6 +816,7 @@ class LSMStore(
           toRemove = Nil,
           merged = true)
         shards.put(shardKey, List(updateEntry))
+        Utils.LOG.log(Level.FINE, "Sharding finished into single shard")
       } else {
         // split data into multiple shards
         val mergedBuf: BufferedIterator[(K, V)] = (mergedFirstShard.iterator ++ merged).buffered
@@ -825,6 +826,7 @@ class LSMStore(
         val parentShardEndKey = shards.higherKey(shardKey)
 
         var startKey: K = shardKey
+        var shardCounter = 0
         while (mergedBuf.hasNext) {
           val keyVals = take(splitSize2, mergedBuf)
 
@@ -845,7 +847,9 @@ class LSMStore(
           shards.put(startKey, List(updateEntry))
 
           startKey = endKey
+          shardCounter += 1
         }
+        Utils.LOG.log(Level.FINE, "Sharding finished into " + shardCounter + " shards")
       }
       taskCleanup()
     } finally {
