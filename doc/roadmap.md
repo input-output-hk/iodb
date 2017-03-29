@@ -27,4 +27,3 @@ Roadmap
 - This release integrates stress testing and crash tests, to verify data survive fatal system failure
 - Improves concurrency, fine grained locking, parallel compaction
 
-

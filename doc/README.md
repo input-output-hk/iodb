@@ -1,7 +1,8 @@
 IODB
 ==========
 
-IODB is key-value store designed for blockchain applications. Main features include:
+IODB is a key-value store designed for blockchain applications. 
+Main features include:
 
 - log-structured storage inspired by LevelDB. existing data are never overwritten. 
 - versioned snapshots with rollback capability

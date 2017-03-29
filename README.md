@@ -2,9 +2,12 @@
 
 [![Build Status](https://travis-ci.org/input-output-hk/iodb.svg?branch=master)](https://travis-ci.org/input-output-hk/iodb)
 
-IODB is persistent key-value store. It is inspired by [RocksDB](http://rocksdb.org).
-Main features include
+IODB is embedded storage engine designed for blockchain applications.
+It is inspired by [RocksDB](http://rocksdb.org).
+It provides ordered key-value store, it is similar to `SortedMap<byte[], byte[]>`.
+Its main advantage are snapshots with branching and fast rollbacks.  
 
+Main features include:
 - Ordered key-value store 
 - Written in Scala, functional interface
 - Multi-threaded background compaction
