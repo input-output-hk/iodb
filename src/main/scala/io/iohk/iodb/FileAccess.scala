@@ -174,6 +174,7 @@ object FileAccess {
   object MMAP extends ByteBufferFileAccess {
 
     override def getValue(fileHandle: Any, key: K, keySize: Int, updateOffset: Long): Option[V] = {
+      assert(updateOffset >= 0, "negative updateOffset: " + updateOffset)
       checkBufferSize(fileHandle)
       val buf = castBuf(fileHandle).duplicate()
 
@@ -252,6 +253,7 @@ object FileAccess {
     protected def cast(fileHandle: Any) = fileHandle.asInstanceOf[FileChannel]
 
     override def getValue(fileHandle: Any, key: K, keySize: Int, updateOffset: Long): Option[V] = {
+      assert(updateOffset >= 0, "negative updateOffset: " + updateOffset)
       val c = cast(fileHandle)
       val tempBuf = ByteBuffer.allocate(8)
 
