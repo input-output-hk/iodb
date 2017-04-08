@@ -411,7 +411,7 @@ class LSMStore(
       if (journalCache.size() > maxJournalEntryCount) {
         //run sharding task
         taskRun {
-          taskSharding()
+          taskDistribute()
         }
       }
       taskCleanup()
@@ -703,7 +703,7 @@ class LSMStore(
     * Task ran periodically in background thread.
     * It distributes content of Journal between Shards.
     */
-  def taskSharding(): Unit = {
+  def taskDistribute(): Unit = {
     lock.writeLock().lock()
     try {
       val versionID = lastVersionID.getOrElse(null)

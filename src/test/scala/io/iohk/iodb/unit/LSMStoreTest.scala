@@ -22,7 +22,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     for (i <- 0 until 5) {
       store.update(versionID = fromLong(i), toRemove = Nil, toUpdate = toUpdate)
-      store.taskSharding()
+      store.taskDistribute()
     }
     store.taskCleanup()
     //journal should only be single file, once sharding is completed
@@ -91,7 +91,7 @@ class LSMStoreTest extends TestWithTempDir {
         versionID = fromLong(i),
         toRemove = Nil,
         toUpdate = keyvals)
-      store.taskSharding()
+      store.taskDistribute()
       check()
     }
 
@@ -111,7 +111,7 @@ class LSMStoreTest extends TestWithTempDir {
         toRemove = Nil,
         toUpdate = (1 + i until 10000 - i).map(fromLong(_)).map(a => (a, a))
       )
-      store.taskSharding()
+      store.taskDistribute()
       store.verify()
     }
     store.taskShardMerge(shardKey = fromLong(0))
@@ -143,7 +143,7 @@ class LSMStoreTest extends TestWithTempDir {
 
       store.update(versionID = fromLong(i), toRemove = toRemove, toUpdate = keyvals)
     }
-    store.taskSharding()
+    store.taskDistribute()
     store.shards.keySet().asScala.foreach { key => store.taskShardMerge(key) }
 
     //open secondary store, compare its content
@@ -163,7 +163,7 @@ class LSMStoreTest extends TestWithTempDir {
       store.update(versionID = fromLong(i), toUpdate = update, toRemove = Nil)
       store.verify()
       storeEquals(store, openStore)
-      store.taskSharding()
+      store.taskDistribute()
       store.verify()
       storeEquals(store, openStore)
     }
@@ -265,7 +265,7 @@ class LSMStoreTest extends TestWithTempDir {
     for (i <- 0 until 100) {
       s.update(versionID = fromLong(i), toRemove = Nil, toUpdate = List((fromLong(i), fromLong(i))))
       if (i % 31 == 0) {
-        s.taskSharding()
+        s.taskDistribute()
         s.taskCleanup()
       }
 
@@ -303,7 +303,7 @@ class LSMStoreTest extends TestWithTempDir {
     store.update(v2, Nil, (key, fromLong(2)) :: Nil)
     store.update(v3, Nil, (key, fromLong(3)) :: Nil)
     //force shard redistribution
-    store.taskSharding()
+    store.taskDistribute()
     store.shards.keySet().asScala.foreach(store.taskShardMerge(_))
 
     assert(store.lastVersionID.get == v3)
@@ -366,7 +366,7 @@ class LSMStoreTest extends TestWithTempDir {
     for (i <- 1 until 100) {
       val k = fromLong(i)
       s.update(k, toRemove = Nil, toUpdate = List((k, k)))
-      s.taskSharding()
+      s.taskDistribute()
       s.verify()
       storeEquals(s, open())
       s.taskCleanup()
@@ -400,7 +400,7 @@ class LSMStoreTest extends TestWithTempDir {
   @Test def shard_spec(): Unit = {
     val store = new LSMStore(dir = dir, keySize = 8, splitSize = 1, keepVersions = 100)
     store.update(versionID = fromLong(1L), toRemove = Nil, toUpdate = List((fromLong(1), fromLong(1))))
-    store.taskSharding()
+    store.taskDistribute()
     assert(store.shards.size == 1)
     val spec = store.deserializeShardSpec(
       new DataInputStream(new FileInputStream(new File(store.dir, LSMStore.shardLayoutLog))))
@@ -409,7 +409,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     for (i <- 2 until 100) {
       store.update(versionID = fromLong(i), toRemove = Nil, toUpdate = List((fromLong(i), fromLong(1))))
-      store.taskSharding()
+      store.taskDistribute()
       store.taskShardMerge(shardKey = fromLong(0))
 
     }
@@ -499,7 +499,7 @@ class LSMStoreTest extends TestWithTempDir {
         assert(s.get(fromLong(a)).isEmpty)
       }
       storeEquals(s, open)
-      s.taskSharding()
+      s.taskDistribute()
       storeEquals(s, open)
       s.rollback(versionID = fromLong(i))
       for (a <- i until i + step) {
