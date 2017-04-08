@@ -43,7 +43,7 @@ class LevelDBStore(val dir: File, val storeName: String = "leveldb") extends Sto
 
   override def cleanStop(): Unit = ???
 
-  override def lastVersionID: Option[VersionID] = lastVersionID
+  override def lastVersionID: Option[VersionID] = lastVersion
 
   override def update(versionID: VersionID,
                       toRemove: Iterable[K],

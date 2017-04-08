@@ -27,7 +27,6 @@ class LSMStoreTest extends TestWithTempDir {
     store.taskCleanup()
     //journal should only be single file, once sharding is completed
     assert(store.fileHandles.keys.count(_ < 0) == 1)
-    assert(store.fileOuts.keys.count(_ < 0) == 1)
     assert(store.journalCache.isEmpty)
 
     //check shard was created
@@ -202,7 +201,7 @@ class LSMStoreTest extends TestWithTempDir {
       new RandomAccessFile(store.numToFile(n), "rw")
     }
 
-    def numbers = store.journalListSortedFiles().map(store.journalFileToNum(_))
+    def numbers = store.journalListSortedFiles().map(LSMStore.journalFileToNum(_))
 
     assert(numbers == (-1000L until -1))
 
@@ -319,7 +318,6 @@ class LSMStoreTest extends TestWithTempDir {
     assert(shardFiles.isEmpty)
 
     assert(!store.fileHandles.keySet.exists(_ >= 0))
-    assert(!store.fileOuts.keySet.exists(_ >= 0))
 
     assert(store.journalDirty.size == 2)
     assert(store(key) == fromLong(2))
@@ -507,5 +505,61 @@ class LSMStoreTest extends TestWithTempDir {
       }
       storeEquals(s, open)
     }
+  }
+
+  def listJournalFiles() =
+    dir.listFiles().toBuffer
+      .filter(LSMStore.isJournalFile(_))
+      .map(LSMStore.journalFileToNum(_))
+
+  @Test def journal_file_num(): Unit = {
+
+    def openStore() = new LSMStore(
+      dir = dir, keySize = 8,
+      maxFileSize = 1024,
+      keepVersions = 10000000)
+
+    var store = openStore()
+    assert(store.journalCurrentFileNum == -1L)
+    assert(listJournalFiles().isEmpty)
+
+    //reopen restores no file status
+    store.close()
+    store = openStore()
+    assert(store.journalCurrentFileNum == -1L)
+    assert(listJournalFiles().isEmpty)
+
+    //first update creates new journal file
+    store.update(fromLong(1L), toUpdate = List((fromLong(1L), fromLong(2L))), toRemove = Nil)
+
+    assert(listJournalFiles() == List(-1L))
+    assert(store.journalCurrentFileNum == -1L)
+    assert(store.fileHandles.size == 1)
+
+    store.close()
+    store = openStore()
+
+    assert(listJournalFiles() == List(-1L))
+    assert(store.journalCurrentFileNum == -1L)
+    assert(store.fileHandles.size == 1)
+
+    //fill up journal, new file should be started
+    var c = 2L
+    while (listJournalFiles().size == 1) {
+      val cl = fromLong(c)
+      store.update(cl, toUpdate = List((cl, cl)), toRemove = Nil)
+      c += 1
+    }
+
+    assert(listJournalFiles() == List(-2L, -1L))
+    assert(store.journalCurrentFileNum == -2L)
+    assert(store.fileHandles.size == 2)
+
+    store.close()
+    store = openStore()
+
+    assert(listJournalFiles() == List(-2L, -1L))
+    assert(store.journalCurrentFileNum == -2L)
+    assert(store.fileHandles.size == 2)
   }
 }

@@ -25,6 +25,14 @@ protected[iodb] object LSMStore {
   val shardLayoutLog = "shardLayoutLog"
 
   type ShardLayout = util.TreeMap[K, List[LogFileUpdate]]
+
+
+  protected[iodb] def isJournalFile(f: File): Boolean =
+    f.getName.matches(LSMStore.fileJournalPrefix + "-[0-9]+")
+
+  protected[iodb] def journalFileToNum(f: File): Long =
+    f.getName().substring(LSMStore.fileJournalPrefix.size).toLong
+
 }
 
 import io.iohk.iodb.LSMStore._
@@ -51,13 +59,15 @@ class LSMStore(
   protected[iodb] val journalCache = new util.TreeMap[K, V]
   protected[iodb] var journalLastVersionID: Option[VersionID] = None
 
+  protected[iodb] def journalCurrentFileNum(): Long = fileHandles.keySet
+    .filter(_ < 0).reduceOption(_ min _).getOrElse(-1L)
+
   //TODO mutable buffer, or queue?
   protected[iodb] var journalRollback: List[LogFileUpdate] = Nil
 
   protected[iodb] var shardLayoutLog: FileOutputStream = null
 
   protected[iodb] val fileHandles = mutable.HashMap[Long, Any]()
-  protected[iodb] val fileOuts = mutable.HashMap[Long, FileOutputStream]()
 
   protected[iodb] var shards = new ShardLayout()
 
@@ -85,15 +95,12 @@ class LSMStore(
     journalNumbers.foreach { p =>
       val f = numToFile(p)
       fileHandles(p) = fileAccess.open(f.getPath)
-      fileOuts(p) = new FileOutputStream(f, true)
     }
 
     //open shard file handles
     shardNums.foreach { fileNum =>
       val f = numToFile(fileNum)
       fileHandles(fileNum) = fileAccess.open(f.getPath)
-      //TODO verify file size matches update log, last update in file could be corrupted
-      fileOuts(fileNum) = new FileOutputStream(f, true)
     }
 
     //replay Shard Layout Log and restore shards
@@ -204,15 +211,9 @@ class LSMStore(
 
   protected[iodb] def journalStartNewFile(): Long = {
     assert(lock.isWriteLockedByCurrentThread)
-
-    val fileNum = journalNewFileNum()
+    val fileNum = journalCurrentFileNum() - 1L
     val journalFile = numToFile(fileNum)
     assert(!(journalFile.exists()))
-
-    val out = new FileOutputStream(journalFile, false)
-    val fileHandle = fileAccess.open(journalFile.getPath)
-    fileOuts(fileNum) = out
-    fileHandles(fileNum) = fileHandle
 
     return fileNum
   }
@@ -273,12 +274,6 @@ class LSMStore(
   }
 
 
-  protected[iodb] def isJournalFile(f: File): Boolean =
-    f.getName.matches(LSMStore.fileJournalPrefix + "-[0-9]+")
-
-  protected[iodb] def journalFileToNum(f: File): Long =
-    f.getName().substring(LSMStore.fileJournalPrefix.size).toLong
-
   protected[iodb] def numToFile(n: Long): File = {
     val prefix = if (n < 0) LSMStore.fileJournalPrefix else LSMStore.fileShardPrefix
     new File(dir, prefix + n)
@@ -289,12 +284,6 @@ class LSMStore(
       .filter(isJournalFile(_))
       .sortBy(journalFileToNum(_))
   }
-
-  protected[iodb] def journalNewFileNum(): Long = journalListSortedFiles()
-    .headOption.map(journalFileToNum(_))
-    .getOrElse(0L) - 1L
-
-  protected def journalCurrentFileNum(): Long = fileOuts.keys.min
 
   protected[iodb] def shardFileToNum(f: File): Long =
     f.getName().substring(LSMStore.fileShardPrefix.size).toLong
@@ -341,10 +330,6 @@ class LSMStore(
     val fileNum = shardNewFileNum()
     val shardFile = new File(dir, LSMStore.fileShardPrefix + fileNum)
     assert(!(shardFile.exists()))
-    val out = new FileOutputStream(shardFile)
-    val fileHandle = fileAccess.open(shardFile.getPath)
-    fileOuts(fileNum) = out
-    fileHandles(fileNum) = fileHandle
     return fileNum
   }
 
@@ -380,10 +365,6 @@ class LSMStore(
         //start a new file
         //        fileOuts.remove(journalFileNum).get.close()
         journalFileNum = journalStartNewFile()
-        val file = numToFile(journalFileNum)
-        val out = new FileOutputStream(file)
-        fileOuts(journalFileNum) = out
-        fileHandles(journalFileNum) = fileAccess.open(file.getPath())
       }
 
       val updateEntry = updateAppend(
@@ -436,15 +417,23 @@ class LSMStore(
       toUpdate = toUpdate,
       isMerged = merged)
 
-    val out = fileOuts(fileNum)
-
-    val updateOffset = out.getChannel.position()
-    out.write(updateData)
-    out.getFD.sync()
+    var updateOffset = 0L
+    val out = new FileOutputStream(numToFile(fileNum), true)
+    try {
+      updateOffset = out.getChannel.position()
+      //TODO assert fileOffset is equal to end of linked list of updates
+      out.write(updateData)
+      out.getFD.sync()
+    } finally {
+      out.close()
+    }
 
     //update file size
-    val oldHandle = fileHandles(fileNum)
-    val newHandle = fileAccess.expandFileSize(oldHandle)
+    val oldHandle = fileHandles.getOrElse(fileNum, null)
+    val newHandle: Any =
+      if (oldHandle == null) fileAccess.open(numToFile(fileNum).getPath)
+      else fileAccess.expandFileSize(oldHandle)
+
     if (oldHandle != newHandle) {
       fileHandles.put(fileNum, newHandle)
     }
@@ -457,7 +446,6 @@ class LSMStore(
       versionID = versionID,
       prevVersionID = prevVersionID
     )
-
   }
 
   def taskRun(f: => Unit) {
@@ -949,13 +937,10 @@ class LSMStore(
     }
   }
 
-
   override def close(): Unit = {
     lock.writeLock().lock()
     try {
-      fileOuts.values.foreach(_.close())
       fileHandles.values.foreach(fileAccess.close(_))
-      fileOuts.clear()
       fileHandles.clear()
       if (shardLayoutLog != null)
         shardLayoutLog.close()
@@ -1014,7 +999,6 @@ class LSMStore(
         listFiles().filter(isShardFile(_)).map(shardFileToNum(_))).toSet
 
     assert(existFiles == fileHandles.keySet)
-    assert(existFiles == fileOuts.keySet)
   }
 
 
@@ -1034,7 +1018,7 @@ class LSMStore(
   def taskCleanup(deleteFiles: Boolean = true): Unit = {
     lock.writeLock().lock()
     try {
-      if (fileOuts.isEmpty)
+      if (fileHandles.isEmpty)
         return
       //this updates will be preserved
       var index = Math.max(keepVersions, journalDirty.size)
@@ -1060,14 +1044,12 @@ class LSMStore(
 
       val numsToPreserve = (journalPreserveNums ++ shardNumsToPreserve)
       assert(numsToPreserve.forall(fileHandles.contains(_)))
-      assert(numsToPreserve.forall(fileOuts.contains(_)))
 
       val deleteNums = (fileHandles.keySet diff numsToPreserve)
 
       //delete unused journal files
       for (num <- deleteNums) {
         fileAccess.close(fileHandles.remove(num).get)
-        fileOuts.remove(num).get.close()
         if (deleteFiles) {
           val f = numToFile(num)
           assert(f.exists())
