@@ -511,6 +511,7 @@ class LSMStoreTest extends TestWithTempDir {
     dir.listFiles().toBuffer
       .filter(LSMStore.isJournalFile(_))
       .map(LSMStore.journalFileToNum(_))
+      .sorted
 
   @Test def journal_file_num(): Unit = {
 
