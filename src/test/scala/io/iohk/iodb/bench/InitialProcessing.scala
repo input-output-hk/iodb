@@ -12,9 +12,9 @@ import org.slf4j.LoggerFactory
 object InitialProcessing extends Benchmark {
   val Milestones = Seq(1000, 5000, 10000, 50000, 100000, 250000, 500000, 750000, 1000000)
 
-  val Inputs = 1900
+  val Inputs = 5500
   //average number of inputs per block
-  val Outputs = 2100 //average number of outputs per block
+  val Outputs = 6000 //average number of outputs per block
 
   def bench(store: Store, dir: File): Unit = {
     println(s"Store: $store")

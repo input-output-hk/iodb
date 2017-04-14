@@ -9,7 +9,8 @@ object BlockProcessing extends Benchmark with App {
 
   val InitialSize = 5000000
 
-  val OutputsPerBlock = 2000
+  val InputsPerBlock = 5500
+  val OutputsPerBlock = 6000
   val Blocks = 2000
 
   val keysCache = Seq[ByteArrayWrapper]()
@@ -26,7 +27,7 @@ object BlockProcessing extends Benchmark with App {
     println("Initial data is loaded into the store")
 
     val (_, ts) = (1L to Blocks).foldLeft((Seq[ByteArrayWrapper](), Seq[Long]())) { case ((cache, times), v) =>
-      val (time, newCache) = TestUtils.runningTime(processBlock(version.incrementAndGet, store, OutputsPerBlock, OutputsPerBlock, cache).get)
+      val (time, newCache) = TestUtils.runningTime(processBlock(version.incrementAndGet, store, InputsPerBlock, OutputsPerBlock, cache).get)
       println(s"Block processing time for block# $v: " + time)
       (newCache, times ++ Seq(time))
     }

@@ -705,8 +705,8 @@ class LSMStore(
       val groupByShard = journalCache.asScala.groupBy { a => shards.floorKey(a._1) }
 
       for ((shardKey, entries) <- groupByShard) {
-        val toRemove: Iterable[K] = entries.filter(_._2 eq Store.tombstone).map(_._1)
-        val toUpdate: Iterable[(K, V)] = entries.filterNot(_._2 eq Store.tombstone)
+        val (tr, toUpdate: Iterable[(K, V)]) = entries.view.partition(_._2 eq Store.tombstone)
+        val toRemove: Iterable[K] = tr.map(_._1)
 
         var fileNum = 0L
         var logFile: List[LogFileUpdate] = Nil
