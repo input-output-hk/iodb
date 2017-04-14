@@ -43,6 +43,7 @@ class LSMStore(
                 val dir: File,
                 val keySize: Int = 32,
                 val executor: Executor = Executors.newCachedThreadPool(),
+                val taskSchedulerDisabled: Boolean = false,
                 val maxJournalEntryCount: Int = 100000,
                 val maxShardUnmergedCount: Int = 4,
                 val splitSize: Int = 100 * 1024,
@@ -349,6 +350,21 @@ class LSMStore(
               toRemove: Iterable[K],
               toUpdate: Iterable[(K, V)]
             ): Unit = {
+
+    //produce sorted and merged data set
+    val data = new mutable.TreeMap[K, V]()
+    for (key <- toRemove) {
+      val old = data.put(key, Store.tombstone)
+      if (old.isDefined)
+        throw new IllegalArgumentException("duplicate key in `toRemove`")
+    }
+    for ((key, value) <- toUpdate) {
+      val old = data.put(key, value)
+      if (old.isDefined)
+        throw new IllegalArgumentException("duplicate key in `toUpdate`")
+    }
+
+
     lock.writeLock().lock()
     try {
       if (versionIDExists(versionID))
@@ -369,8 +385,7 @@ class LSMStore(
 
       val updateEntry = updateAppend(
         fileNum = journalFileNum,
-        toRemove = toRemove,
-        toUpdate = toUpdate,
+        data = data,
         versionID = versionID,
         prevVersionID = prevVersionID,
         merged = false)
@@ -403,18 +418,17 @@ class LSMStore(
 
   protected[iodb] def updateAppend(
                                     fileNum: Long,
-                                    toRemove: Iterable[K],
-                                    toUpdate: Iterable[(K, V)],
+                                    data: Iterable[(K, V)],
                                     versionID: VersionID,
                                     prevVersionID: V,
                                     merged: Boolean
                                   ): LogFileUpdate = {
+
     //insert new Update into journal
     val updateData = serializeUpdate(
       versionID = versionID,
       prevVersionID = prevVersionID,
-      toRemove = toRemove,
-      toUpdate = toUpdate,
+      data = data,
       isMerged = merged)
 
     var updateOffset = 0L
@@ -440,7 +454,7 @@ class LSMStore(
     //append new entry to journal
     return new LogFileUpdate(
       offset = updateOffset.toInt,
-      keyCount = toRemove.size + toUpdate.size,
+      keyCount = data.size,
       merged = merged,
       fileNum = fileNum,
       versionID = versionID,
@@ -449,6 +463,8 @@ class LSMStore(
   }
 
   def taskRun(f: => Unit) {
+    if (taskSchedulerDisabled)
+      return // task should be triggered by user
     if (executor == null) {
       // execute in foreground
       f
@@ -551,27 +567,23 @@ class LSMStore(
   }
 
   protected[iodb] def serializeUpdate(
-                                        versionID: VersionID,
-                                        prevVersionID: VersionID,
-                                        toRemove: Iterable[K],
-                                        toUpdate: Iterable[(K, V)],
-                                        isMerged: Boolean
-                                      ): Array[Byte] = {
+                                       versionID: VersionID,
+                                       prevVersionID: VersionID,
+                                       data: Iterable[(K, V)],
+                                       isMerged: Boolean
+                                     ): Array[Byte] = {
 
     //TODO check total size is <2GB
 
-    //merge toRemove and toUpdate into sorted set
-    val sorted: mutable.Buffer[Tuple2[ByteArrayWrapper, ByteArrayWrapper]] =
-      (toRemove.map(k => (k, null)) ++ toUpdate)
-        .toBuffer
-        .sortBy(_._1)
+    //assert sorted
+    data.reduce { (t1, t2) =>
+      assert(t1._1 < t2._1)
+      t2
+    }
 
-    //check for duplicates
-    assert(sorted.size == toRemove.size + toUpdate.size, "duplicate key")
-    assert(sorted.map(_._1).toSet.size == sorted.size, "duplicate key")
     //check for key size
     assert((versionID == tombstone && prevVersionID == tombstone) ||
-      sorted.forall(_._1.size == keySize), "wrong key size")
+      data.forall(_._1.size == keySize), "wrong key size")
 
     val out = new ByteArrayOutputStream()
     val out2 = new DataOutputStream(out)
@@ -581,7 +593,7 @@ class LSMStore(
     out2.writeInt(0)
 
     //basic data
-    out2.writeInt(sorted.size) // number of keys
+    out2.writeInt(data.size) // number of keys
     out2.writeInt(keySize) // key size
 
     //versions
@@ -591,12 +603,12 @@ class LSMStore(
     out2.writeBoolean(isMerged) //is merged
 
     //write keys
-    sorted.map(_._1.data).foreach(out2.write(_))
+    data.map(_._1.data).foreach(out2.write(_))
 
-    var valueOffset = out.size() + sorted.size * 8 + versionID.size + prevVersionID.size
+    var valueOffset = out.size() + data.size * 8 + versionID.size + prevVersionID.size
 
     //write value sizes and their offsets
-    sorted.foreach { t =>
+    data.foreach { t =>
       val value = t._2
       if (value == null) {
         //tombstone
@@ -614,7 +626,7 @@ class LSMStore(
     out2.write(prevVersionID.data)
 
     //write values
-    sorted.foreach { t =>
+    data.foreach { t =>
       if (t._2 != null) //filter out tombstones
         out2.write(t._2.data)
     }
@@ -702,43 +714,43 @@ class LSMStore(
 
       Utils.LOG.log(Level.FINE, "Run Sharding Task for " + journalCache.size() + " keys.")
 
-      val groupByShard = journalCache.asScala.groupBy { a => shards.floorKey(a._1) }
-
-      for ((shardKey, entries) <- groupByShard) {
-        val (tr, toUpdate: Iterable[(K, V)]) = entries.view.partition(_._2 eq Store.tombstone)
-        val toRemove: Iterable[K] = tr.map(_._1)
-
-        var fileNum = 0L
-        var logFile: List[LogFileUpdate] = Nil
-        var shardKey2 = shardKey
-        if (shardKey == null) {
-          //shard map is empty, create new shard
-          fileNum = createEmptyShard()
-          logFile = Nil
-          shardKey2 = new ByteArrayWrapper(keySize) //lowest possible key
-        } else {
-          //use existing shard
-          logFile = shards.get(shardKey)
-          fileNum = logFile.head.fileNum
-        }
-
-        //insert new update into Shard
-        val updateEntry = updateAppend(fileNum,
-          toRemove = toRemove, toUpdate = toUpdate,
-          merged = logFile.isEmpty,
-          versionID = versionID,
-          prevVersionID = logFile.headOption.map(_.versionID).getOrElse(tombstone)
-        )
-        logFile = updateEntry :: logFile
-        shards.put(shardKey2, logFile)
-
-        //schedule merge on this Shard, if it has enough unmerged changes
-        val unmergedCount = logFile.takeWhile(!_.merged).size
-        if (unmergedCount > maxShardUnmergedCount)
-          taskRun {
-            taskShardMerge(shardKey)
-          }
+      if (shards.isEmpty && !journalCache.isEmpty) {
+        //add lowest possible key for given size
+        shards.put(new ByteArrayWrapper(keySize), Nil)
       }
+
+      (shards.keySet().asScala ++ List(null)).reduce { (shardKey, hiKey) =>
+
+        val entries =
+          if (hiKey == null) journalCache.tailMap(shardKey, true)
+          else journalCache.subMap(shardKey, true, hiKey, false)
+
+        if (!entries.isEmpty) {
+          var logFile = shards.get(shardKey)
+          val fileNum: Long =
+            if (logFile.isEmpty) createEmptyShard()
+            else logFile.head.fileNum
+
+          //insert new update into Shard
+          val updateEntry = updateAppend(fileNum,
+            data = entries.asScala,
+            merged = logFile.isEmpty,
+            versionID = versionID,
+            prevVersionID = logFile.headOption.map(_.versionID).getOrElse(tombstone)
+          )
+          logFile = updateEntry :: logFile
+          shards.put(shardKey, logFile)
+
+          //schedule merge on this Shard, if it has enough unmerged changes
+          val unmergedCount = logFile.takeWhile(!_.merged).size
+          if (unmergedCount > maxShardUnmergedCount)
+            taskRun {
+              taskShardMerge(shardKey)
+            }
+        }
+        hiKey
+      }
+
       journalCache.clear()
       journalDirty = Nil
 
@@ -800,8 +812,7 @@ class LSMStore(
           fileNum = createEmptyShard(),
           versionID = shard.head.versionID,
           prevVersionID = Store.tombstone,
-          toUpdate = mergedFirstShard,
-          toRemove = Nil,
+          data = mergedFirstShard,
           merged = true)
         shards.put(shardKey, List(updateEntry))
         Utils.LOG.log(Level.FINE, "Sharding finished into single shard")
@@ -827,8 +838,7 @@ class LSMStore(
             fileNum = createEmptyShard(),
             versionID = shard.head.versionID,
             prevVersionID = Store.tombstone,
-            toUpdate = keyVals,
-            toRemove = Nil,
+            data = keyVals,
             merged = true
           )
 
@@ -925,8 +935,7 @@ class LSMStore(
       //insert new marker update to journal, so when reopened we start with this version
       val updateEntry = updateAppend(
         fileNum = journalCurrentFileNum(),
-        toRemove = Nil,
-        toUpdate = Nil,
+        data = Nil,
         versionID = versionID,
         prevVersionID = versionID,
         merged = false)

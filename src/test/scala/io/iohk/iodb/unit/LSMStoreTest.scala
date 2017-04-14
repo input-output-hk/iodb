@@ -58,7 +58,7 @@ class LSMStoreTest extends TestWithTempDir {
 
       //write data
       val update = store.updateAppend(fileNum = fileNum,
-        toRemove = toRemove, toUpdate = keyvals,
+        data = (keyvals ++ toRemove.map(k => (k, Store.tombstone))).toBuffer[(K, V)].sortBy(t => t._1),
         versionID = tombstone, prevVersionID = tombstone,
         merged = i == 0)
 
@@ -219,16 +219,14 @@ class LSMStoreTest extends TestWithTempDir {
     out.write(
       s.serializeUpdate(
         versionID = fromLong(100), prevVersionID = tombstone,
-        toRemove = Nil,
-        toUpdate = List((fromLong(150), fromLong(150))),
+        data = List((fromLong(150), fromLong(150))),
         isMerged = true)
     )
     val offset2 = out.getChannel.position()
     out.write(
       s.serializeUpdate(
         versionID = fromLong(101), prevVersionID = fromLong(100),
-        toRemove = Nil,
-        toUpdate = List((fromLong(151), fromLong(151))),
+        data = List((fromLong(151), fromLong(151))),
         isMerged = false)
     )
     out.flush()
