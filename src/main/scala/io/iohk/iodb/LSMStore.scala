@@ -575,12 +575,6 @@ class LSMStore(
 
     //TODO check total size is <2GB
 
-    //assert sorted
-    data.reduce { (t1, t2) =>
-      assert(t1._1 < t2._1)
-      t2
-    }
-
     //check for key size
     assert((versionID == tombstone && prevVersionID == tombstone) ||
       data.forall(_._1.size == keySize), "wrong key size")
@@ -610,7 +604,7 @@ class LSMStore(
     //write value sizes and their offsets
     data.foreach { t =>
       val value = t._2
-      if (value == null) {
+      if (value == Store.tombstone) {
         //tombstone
         out2.writeInt(-1)
         out2.writeInt(0)
