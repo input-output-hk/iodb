@@ -131,7 +131,7 @@ class LSMStore(
       }
 
 
-      if (shardRollback.size > 0)
+      if (shardRollback.nonEmpty)
         shards = shardRollback.last._2.clone().asInstanceOf[ShardLayout]
     }
 
@@ -148,7 +148,7 @@ class LSMStore(
 
     journalRollback = j.toList
 
-    if (journalRollback.size > 0)
+    if (journalRollback.nonEmpty)
       taskCleanup(deleteFiles = false)
   }
 
@@ -180,12 +180,12 @@ class LSMStore(
     //start from last update and reconstruct list
     val list = new ArrayBuffer[LogFileUpdate]
     var b = updates.lastOption.map(u => cur(u.versionID))
-    while (b != None) {
+    while (b.isDefined) {
       list += b.get
       b = cur.get(b.get.prevVersionID)
     }
 
-    return list
+    list
   }
 
   protected[iodb] def journalDeleteFilesButNewest(): Unit = {
@@ -214,9 +214,9 @@ class LSMStore(
     assert(lock.isWriteLockedByCurrentThread)
     val fileNum = journalCurrentFileNum() - 1L
     val journalFile = numToFile(fileNum)
-    assert(!(journalFile.exists()))
+    assert(!journalFile.exists())
 
-    return fileNum
+    fileNum
   }
 
   protected[iodb] def loadUpdates(file: File, fileNum: Long): Iterable[LogFileUpdate] = {
@@ -253,7 +253,7 @@ class LSMStore(
 
       val versionID = new ByteArrayWrapper(versionIDSize)
       val prevVersionID = new ByteArrayWrapper(prevVersionIDSize)
-      val isMerged = (buf.get() == 1)
+      val isMerged = buf.get() == 1
 
       val verPos = LSMStore.updateHeaderSize + keySize * keyCount + 8 * keyCount
       if (versionIDSize > 0)
@@ -261,7 +261,7 @@ class LSMStore(
       if (prevVersionIDSize > 0)
         System.arraycopy(data, verPos + versionIDSize, prevVersionID.data, 0, prevVersionIDSize)
 
-      updates += new LogFileUpdate(
+      updates += LogFileUpdate(
         versionID = versionID,
         prevVersionID = prevVersionID,
         merged = isMerged,
@@ -271,7 +271,7 @@ class LSMStore(
       offset += updateSize
     }
     din.close()
-    return updates
+    updates
   }
 
 
@@ -297,7 +297,7 @@ class LSMStore(
     var files: Array[File] = dir.listFiles()
     if (files == null)
       files = new Array[File](0)
-    return files
+    files
   }
 
   protected[iodb] def shardListSortedFiles(): Seq[File] = {
@@ -319,30 +319,26 @@ class LSMStore(
 
     var ret = new ArrayBuffer[LogFileUpdate]()
     var r = m.get(versionID)
-    while (r != None) {
+    while (r.isDefined) {
       ret += r.get
       r = m.get(r.get.prevVersionID)
     }
 
-    return ret.toList
+    ret.toList
   }
 
   protected[iodb] def createEmptyShard(): Long = {
     val fileNum = shardNewFileNum()
     val shardFile = new File(dir, LSMStore.fileShardPrefix + fileNum)
-    assert(!(shardFile.exists()))
-    return fileNum
+    assert(!shardFile.exists())
+    fileNum
   }
 
   def versionIDExists(versionID: VersionID): Boolean = {
     //TODO traverse all files, not just open files
-    if (journalRollback.find(u => u.versionID == versionID || u.prevVersionID == versionID) != None)
-      return true
-
-    if (shards.values().asScala.flatMap(a => a)
-      .find(u => u.versionID == versionID || u.prevVersionID == versionID) != None)
-      return true
-    return false
+    if (journalRollback.exists(u => u.versionID == versionID || u.prevVersionID == versionID)) true
+    else if (shards.values().asScala.flatten.exists(u => u.versionID == versionID || u.prevVersionID == versionID)) true
+    else false
   }
 
   def update(
@@ -452,7 +448,7 @@ class LSMStore(
       fileHandles.put(fileNum, newHandle)
     }
     //append new entry to journal
-    return new LogFileUpdate(
+    LogFileUpdate(
       offset = updateOffset.toInt,
       keyCount = data.size,
       merged = merged,
@@ -491,7 +487,7 @@ class LSMStore(
                                           shards: Seq[(K, Long, VersionID)]
                                         ): Array[Byte] = {
 
-    assert(shards.size > 0)
+    assert(shards.nonEmpty)
     val out = new ByteArrayOutputStream()
     val out2 = new DataOutputStream(out)
 
@@ -563,7 +559,7 @@ class LSMStore(
       )
     }
 
-    return new ShardSpec(versionID = versionID, shards = specs)
+    ShardSpec(versionID = versionID, shards = specs)
   }
 
   protected[iodb] def serializeUpdate(
@@ -636,7 +632,7 @@ class LSMStore(
   override def lastVersionID: Option[VersionID] = {
     lock.readLock().lock()
     try {
-      return journalLastVersionID
+      journalLastVersionID
     } finally {
       lock.readLock().unlock()
     }
@@ -645,7 +641,7 @@ class LSMStore(
 
   def getUpdates(key: K, logFile: List[LogFileUpdate]): Option[V] = {
     var updates = logFile
-    while (updates != null && !updates.isEmpty) {
+    while (updates != null && updates.nonEmpty) {
       //run binary search on current item
       val value = fileAccess.getValue(
         fileHandle = fileHandles(updates.head.fileNum),
@@ -653,7 +649,7 @@ class LSMStore(
         keySize = keySize,
         updateOffset = updates.head.offset)
       if (value != null)
-        return value;
+        return value
 
       if (updates.head.merged)
         return null // this update is merged, no need to continue traversal
@@ -687,7 +683,7 @@ class LSMStore(
         return ret
 
       // not found
-      return None
+      None
     } finally {
       lock.readLock().unlock()
     }
@@ -770,12 +766,12 @@ class LSMStore(
   // Iterator.take() can not be used, read scaladoc
   private def take(count: Int, iter: Iterator[(K, V)]): Iterable[(K, V)] = {
     val ret = new ArrayBuffer[(K, V)]()
-    var counter = 0;
+    var counter = 0
     while (counter < count && iter.hasNext) {
       counter += 1
       ret += iter.next()
     }
-    return ret;
+    ret
   }
 
 
@@ -901,7 +897,7 @@ class LSMStore(
       }
       //find end version, where journal was sharded, also restore Shard Layout in side effect
       val j = journalRollback.takeWhile { u =>
-        lastShard = shardRollback.get(u.versionID).map(_.clone().asInstanceOf[ShardLayout]).getOrElse(null)
+        lastShard = shardRollback.get(u.versionID).map(_.clone().asInstanceOf[ShardLayout]).orNull
         lastShard == null
       }
 
@@ -982,7 +978,7 @@ class LSMStore(
       //remove update
       .map(it => (it._1, it._3))
 
-    return iter
+    iter
   }
 
   def verify(): Unit = {
@@ -1086,7 +1082,7 @@ protected[iodb] object KeyOffsetValueComparator extends Comparator[(K, Int, V)] 
     //compare by index, higher index means newer entry
     if (c == 0)
       c = o1._2.compareTo(o2._2)
-    return c
+    c
   }
 }
 
