@@ -2,7 +2,10 @@
 ----------------
 
 
+0.3.1
+----------------
 
+- Improve performance of a task distributing content between shards
 
 0.3 release 
 -------------
