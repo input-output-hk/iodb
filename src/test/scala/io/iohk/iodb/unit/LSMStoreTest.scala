@@ -183,7 +183,7 @@ class LSMStoreTest extends TestWithTempDir {
   }
 
   private def storeEquals(store: LSMStore, store2: LSMStore) = {
-    assert(store.journalDirty == store2.journalDirty)
+    assert(store.journalNotDistributed == store2.journalNotDistributed)
     assert(store.journalRollback == store2.journalRollback)
     assert(store.journalLastVersionID == store2.journalLastVersionID)
     assert(store.journalCache == store2.journalCache)
@@ -283,10 +283,10 @@ class LSMStoreTest extends TestWithTempDir {
     store.update(v2, Nil, (key, fromLong(2)) :: Nil)
     store.update(v3, Nil, (key, fromLong(3)) :: Nil)
     assert(store.fileHandles.size == 1)
-    assert(store.journalDirty.size == 3)
+    assert(store.journalNotDistributed.size == 3)
 
     store.rollback(v2)
-    assert(store.journalDirty.head.versionID == v2)
+    assert(store.journalNotDistributed.head.versionID == v2)
     assert(store.get(key).contains(fromLong(2)))
 
     store.close()
@@ -317,7 +317,7 @@ class LSMStoreTest extends TestWithTempDir {
 
     assert(!store.fileHandles.keySet.exists(_ >= 0))
 
-    assert(store.journalDirty.size == 2)
+    assert(store.journalNotDistributed.size == 2)
     assert(store(key) == fromLong(2))
 
     store.close()

@@ -36,14 +36,14 @@ object SimpleKVBench extends Benchmark{
     printlnResult(rb)
     TestUtils.deleteRecur(dir)
 
-    dir = TestUtils.tempDir()
-    val lvb = bench(
-      store = new LevelDBStore(dir),
-      dir = dir,
-      updates = updates,
-      keyCount = keyCount)
-    printlnResult(lvb)
-    TestUtils.deleteRecur(dir)
+    //    dir = TestUtils.tempDir()
+    //    val lvb = bench(
+    //      store = new LevelDBStore(dir),
+    //      dir = dir,
+    //      updates = updates,
+    //      keyCount = keyCount)
+    //    printlnResult(lvb)
+    //    TestUtils.deleteRecur(dir)
 
     printf("Commit count: %,d \n", updates)
     printf("Keys per update: %,d \n", keyCount)

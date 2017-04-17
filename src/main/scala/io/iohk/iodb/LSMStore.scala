@@ -56,17 +56,17 @@ class LSMStore(
 
   val lock = new ReentrantReadWriteLock()
 
-  protected[iodb] var journalDirty: List[LogFileUpdate] = Nil
+  protected[iodb] var journalNotDistributed: List[LogFileUpdate] = Nil
   protected[iodb] val journalCache = new util.TreeMap[K, V]
-  protected[iodb] var journalLastVersionID: Option[VersionID] = None
+  //  protected[iodb] var journalLastVersionID: Option[VersionID] = None
+
+  protected[iodb] def journalLastVersionID: Option[VersionID] = journalRollback.headOption.map(_.versionID)
 
   protected[iodb] def journalCurrentFileNum(): Long = fileHandles.keySet
     .filter(_ < 0).reduceOption(_ min _).getOrElse(-1L)
 
   //TODO mutable buffer, or queue?
   protected[iodb] var journalRollback: List[LogFileUpdate] = Nil
-
-  protected[iodb] var shardLayoutLog: FileOutputStream = null
 
   protected[iodb] val fileHandles = mutable.HashMap[Long, Any]()
 
@@ -137,13 +137,12 @@ class LSMStore(
 
     val j = loadJournal(journalNumbers.sorted.reverse)
     j.headOption.foreach { h => assert(h.versionID != h.prevVersionID) }
-    journalLastVersionID = j.headOption.map(_.versionID)
 
     //find newest entry in journal present which is also present in shard
     //and cut journal, so it does not contain old entries
-    journalDirty = j.takeWhile(u => !shardRollback.contains(u.versionID)).toList
+    journalNotDistributed = j.takeWhile(u => !shardRollback.contains(u.versionID)).toList
     //restore journal cache
-    keyValues(journalDirty, dropTombstones = false)
+    keyValues(journalNotDistributed, dropTombstones = false)
       .foreach(a => journalCache.put(a._1, a._2))
 
     journalRollback = j.toList
@@ -152,18 +151,6 @@ class LSMStore(
       taskCleanup(deleteFiles = false)
   }
 
-
-  protected[iodb] def initShardLayoutLog(): Unit = {
-    lock.writeLock().lock()
-    try {
-      if (shardLayoutLog != null)
-        return
-      val f = new File(dir, LSMStore.shardLayoutLog)
-      shardLayoutLog = new FileOutputStream(f, true)
-    } finally {
-      lock.writeLock().unlock()
-    }
-  }
 
   /** read files and reconstructs linked list of updates */
   protected[iodb] def loadJournal(files: Iterable[Long]): mutable.Buffer[LogFileUpdate] = {
@@ -189,7 +176,7 @@ class LSMStore(
   }
 
   protected[iodb] def journalDeleteFilesButNewest(): Unit = {
-    val knownNums = journalDirty.map(_.fileNum).toSet
+    val knownNums = journalNotDistributed.map(_.fileNum).toSet
     val filesToDelete = journalListSortedFiles()
       .drop(1) //do not delete first file
       .filterNot(f => knownNums.contains(journalFileToNum(f))) //do not delete known files
@@ -202,12 +189,12 @@ class LSMStore(
   /** creates new journal file, if no file is opened */
   protected def initJournal(): Unit = {
     assert(lock.isWriteLockedByCurrentThread)
-    if (journalDirty != Nil)
+    if (journalNotDistributed != Nil)
       return;
 
     //create new journal
     journalStartNewFile()
-    journalDirty = Nil
+    journalNotDistributed = Nil
   }
 
   protected[iodb] def journalStartNewFile(): Long = {
@@ -390,9 +377,8 @@ class LSMStore(
         prevVersionID = prevVersionID,
         merged = false)
 
-      journalDirty = updateEntry :: journalDirty
+      journalNotDistributed = updateEntry :: journalNotDistributed
       journalRollback = updateEntry :: journalRollback
-      journalLastVersionID = Some(versionID)
 
       //update journal cache
       for (key <- toRemove) {
@@ -746,19 +732,24 @@ class LSMStore(
       }
 
       journalCache.clear()
-      journalDirty = Nil
+      journalNotDistributed = Nil
 
       //backup current shard layout
       shardRollback.put(versionID, shards.clone().asInstanceOf[ShardLayout])
 
-      initShardLayoutLog()
-      //update shard layout log
-      //write first entry into shard layout log
-      val data = serializeShardSpec(versionID = versionID,
-        shards = shards.asScala.map(u => (u._1, u._2.head.fileNum, u._2.head.versionID)).toSeq)
-      shardLayoutLog.write(data)
-      shardLayoutLog.getFD.sync()
+      val shardLayoutFile = new File(dir, LSMStore.shardLayoutLog)
+      val shardLayoutLog = new FileOutputStream(shardLayoutFile, true)
 
+      try {
+        //update shard layout log
+        //write first entry into shard layout log
+        val data = serializeShardSpec(versionID = versionID,
+          shards = shards.asScala.map(u => (u._1, u._2.head.fileNum, u._2.head.versionID)).toSeq)
+        shardLayoutLog.write(data)
+        shardLayoutLog.getFD.sync()
+      } finally {
+        shardLayoutLog.close()
+      }
       taskCleanup()
     } finally {
       lock.writeLock().unlock()
@@ -887,7 +878,7 @@ class LSMStore(
 
       journalRollback.find(_.versionID == versionID).getOrElse(notFound())
 
-      if (journalDirty != Nil && journalDirty.head.versionID == versionID)
+      if (journalNotDistributed != Nil && journalNotDistributed.head.versionID == versionID)
         return
 
       //cut journal
@@ -923,8 +914,7 @@ class LSMStore(
       keyValues(j, dropTombstones = false).foreach { e =>
         journalCache.put(e._1, e._2)
       }
-      journalLastVersionID = Some(versionID)
-      journalDirty = j
+      journalNotDistributed = j
 
       //insert new marker update to journal, so when reopened we start with this version
       val updateEntry = updateAppend(
@@ -945,8 +935,6 @@ class LSMStore(
     try {
       fileHandles.values.foreach(fileAccess.close(_))
       fileHandles.clear()
-      if (shardLayoutLog != null)
-        shardLayoutLog.close()
       taskCleanup()
     } finally {
       lock.writeLock().unlock()
@@ -1024,7 +1012,7 @@ class LSMStore(
       if (fileHandles.isEmpty)
         return
       //this updates will be preserved
-      var index = Math.max(keepVersions, journalDirty.size)
+      var index = Math.max(keepVersions, journalNotDistributed.size)
       //expand index until we find shard or reach end
       while (index < journalRollback.size && !shardRollback.contains(journalRollback(index).versionID)) {
         index += 1
