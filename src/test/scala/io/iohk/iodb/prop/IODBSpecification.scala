@@ -2,7 +2,7 @@ package io.iohk.iodb.prop
 
 import java.security.MessageDigest
 
-import io.iohk.iodb.{ByteArrayWrapper, LSMStore, TestUtils}
+import io.iohk.iodb._
 import org.scalatest.prop.{GeneratorDrivenPropertyChecks, PropertyChecks}
 import org.scalatest.{BeforeAndAfterAll, Matchers, PropSpec}
 
@@ -19,7 +19,25 @@ class IODBSpecification extends PropSpec
   val iFile = TestUtils.tempDir()
   iFile.mkdirs()
 
-  property("rollback test") {
+
+  property("rollback test LSM") {
+    rollbackTest(blockStorage = new LSMStore(iFile))
+  }
+
+  property("writeKey test LSM") {
+    writeKeyTest(blockStorage = new LSMStore(iFile))
+  }
+
+  property("rollback test quick") {
+    rollbackTest(blockStorage = new QuickStore(iFile))
+  }
+
+  property("writeKey test quick") {
+    writeKeyTest(blockStorage = new QuickStore(iFile))
+  }
+
+
+  def rollbackTest(blockStorage:Store){
     //initialize test
     val NumberOfBlocks = 100
     val NumberOfRollbacks = 100
@@ -53,13 +71,11 @@ class IODBSpecification extends PropSpec
     }
     val allBlockchainKeys: Seq[ByteArrayWrapper] = blockchain.flatMap(_.toInsert.map(_._1))
 
-    def storageHash(storage: LSMStore): Array[Byte] = {
+    def storageHash(storage: Store): Array[Byte] = {
       val valuesBytes = allBlockchainKeys.map(k => storage.get(k).map(_.toString).getOrElse("")).mkString.getBytes
       hash(valuesBytes)
     }
 
-    //Start test
-    val blockStorage = new LSMStore(iFile)
     //initialize blockchain
     blockchain.foreach(b => blockStorage.update(b.id, b.toRemove, b.toInsert))
 
@@ -80,8 +96,8 @@ class IODBSpecification extends PropSpec
     existingKeys.foreach(ek => blockStorage.get(ek).isDefined shouldBe true)
   }
 
-  property("writeKey test") {
-    val blocksStorage = new LSMStore(iFile)
+
+  def writeKeyTest(blockStorage:Store){
     var ids: Seq[ByteArrayWrapper] = Seq()
     var removed: Seq[ByteArrayWrapper] = Seq()
     var i = 0
@@ -98,7 +114,7 @@ class IODBSpecification extends PropSpec
       ids = id +: ids
       i = i + 1
 
-      blocksStorage.update(
+      blockStorage.update(
         id,
         toRemove,
         Seq(id -> fValue))
@@ -106,7 +122,7 @@ class IODBSpecification extends PropSpec
 
     //old keys are defined
     ids.foreach { id =>
-      blocksStorage.get(id) match {
+      blockStorage.get(id) match {
         case None => throw new Error(s"Id $id} not found")
         case Some(v) =>
       }
@@ -114,12 +130,12 @@ class IODBSpecification extends PropSpec
 
     //removed keys are defined not defined
     removed.foreach { id =>
-      blocksStorage.get(id) match {
+      blockStorage.get(id) match {
         case None =>
         case Some(v) => throw new Error(s"Id $id} is defined after delete")
       }
     }
-    ids.foreach(id => blocksStorage.rollbackVersions().exists(_ == id) shouldBe true)
+    ids.foreach(id => blockStorage.rollbackVersions().exists(_ == id) shouldBe true)
 
   }
 

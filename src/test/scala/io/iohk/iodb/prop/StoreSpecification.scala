@@ -12,7 +12,7 @@ import org.scalatest.prop.Checkers
 import scala.util.{Failure, Random, Success, Try}
 
 
-class LSMSpecification extends JUnitSuite with Checkers with BeforeAndAfterAll {
+class StoreSpecification extends JUnitSuite with Checkers with BeforeAndAfterAll {
 
   val params = Parameters.default
     .withMinSize(100)

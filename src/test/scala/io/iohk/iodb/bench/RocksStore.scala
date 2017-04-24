@@ -69,4 +69,6 @@ class RocksStore(val dir: File) extends Store {
 
   /** Get content of entire store */
   override def getAll(consumer: (K, V) => Unit) = ???
+
+  override def rollbackVersions(): Iterable[VersionID] = ???
 }

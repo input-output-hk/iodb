@@ -161,4 +161,11 @@ trait Store {
     * Any get/update operations invoked on closed store will throw an exception.
     */
   def close(): Unit //TODO: Try[Unit] ?
+
+  /**
+    * Returns all versions known to this store.
+    * User can rollback to versions in this list with rollback method
+    */
+  def rollbackVersions(): Iterable[VersionID]
+
 }

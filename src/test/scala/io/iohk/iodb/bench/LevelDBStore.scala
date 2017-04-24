@@ -68,4 +68,10 @@ class LevelDBStore(val dir: File, val storeName: String = "leveldb") extends Sto
   override def close(): Unit = {
     db.close()
   }
+
+  /**
+    * Returns all versions known to this store.
+    * User can rollback to versions in this list with rollback method
+    */
+  override def rollbackVersions(): Iterable[VersionID] = ???
 }

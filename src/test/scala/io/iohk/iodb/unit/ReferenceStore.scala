@@ -53,4 +53,6 @@ class ReferenceStore extends Store {
       consumer(k, v)
     }
   }
+
+  override def rollbackVersions(): Iterable[VersionID] = history.keys
 }
