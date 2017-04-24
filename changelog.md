@@ -5,7 +5,15 @@
 0.3.1
 ----------------
 
-- Improve performance of a task distributing content between shards
+- Improve performance of a task distributing content between shards.
+
+- Add `QuickStore`. It stores data in-memory, but also has durability and rollbacks.
+
+- Improve sorting performance, updates and background tasks are 5x faster. 
+
+- Reduce memory footprint, background task no longer load entire shard into memory.
+
+- Reduce number of opened file handles. 
 
 0.3 release 
 -------------
