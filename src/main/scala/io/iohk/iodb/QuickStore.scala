@@ -27,14 +27,35 @@ class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store
     if (!path.toFile.exists())
       path.toFile.createNewFile()
 
-    //replay all updates
+    //get all updates from file
+    val updates = new mutable.HashMap[VersionID, QuickUpdate]()
+    var lastUpdate: QuickUpdate = null
     deserializeAllUpdates { u =>
-      u.changes.foreach { c =>
-        if (c.newValue eq Store.tombstone) {
-          keyvals.remove(c.key)
-        } else {
-          keyvals.update(c.key, c.newValue)
-        }
+      updates.put(u.versionID, u)
+      lastUpdate = u
+    }
+
+    //construct sequence of updates
+    val seq = new mutable.ArrayBuffer[QuickUpdate]
+    var counter = 0L
+    while (lastUpdate != null) {
+      //cyclic ref protection
+      counter += 1
+      if (counter > 1e9)
+        throw new DataCorruptionException("too many versions, most likely cyclic ref")
+
+      seq += lastUpdate
+      lastUpdate =
+        if (lastUpdate.prevVersionID eq Store.tombstone) null
+        else updates(lastUpdate.prevVersionID)
+    }
+
+    //replay updates to get current map
+    replayChanges(seq.reverse) { (c: QuickChange, u: QuickUpdate) =>
+      if (c.newValue eq Store.tombstone) {
+        keyvals.remove(c.key)
+      } else {
+        keyvals.update(c.key, c.newValue)
       }
     }
   }
@@ -76,7 +97,7 @@ class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store
     lock.writeLock().lock()
     try {
 
-      val binaryUpdate = serializeUpdate(new QuickUpdate(versionID = versionID, prevVersionID = this.versionID.get, changes = changes))
+      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID.get, changes = changes)
 
       this.versionID = Some(versionID)
       val fout = Files.newOutputStream(path,
@@ -101,7 +122,7 @@ class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store
     }
   }
 
-  protected[iodb] def serializeUpdate(u: QuickUpdate): Array[Byte] = {
+  protected[iodb] def serializeUpdate(versionID: VersionID, prevVersionID: VersionID, changes: Iterable[QuickChange]): Array[Byte] = {
     val out = new ByteOutputStream()
     val out2 = new DataOutputStream(out)
     //skip place for update size and checksum
@@ -117,11 +138,11 @@ class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store
       }
     }
 
-    write(u.versionID)
-    write(u.prevVersionID)
-    out2.writeInt(u.changes.size)
+    write(versionID)
+    write(prevVersionID)
+    out2.writeInt(changes.size)
 
-    u.changes.foreach { c =>
+    changes.foreach { c =>
       write(c.key)
       write(c.oldValue)
       write(c.newValue)
@@ -133,48 +154,83 @@ class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store
     return b
   }
 
-  protected[iodb] def deserializeUpdate(in: DataInputStream): QuickUpdate = {
+
+  protected def readByteArray(in: DataInput): ByteArrayWrapper = {
+    val size = in.readInt()
+    if (size == -1)
+      return Store.tombstone
+    val r = new ByteArrayWrapper(size)
+    in.readFully(r.data)
+    return r
+  }
+
+  protected[iodb] def deserializeUpdate(in: DataInputStream, offset: Long, skipChecksum: Boolean = false): QuickUpdate = {
 
     val checksum = in.readLong()
-    val size = in.readInt()
+    val length = in.readInt()
 
     //verify checksum, must read byte[] to do that
-    val b = new Array[Byte](size)
-    in.readFully(b, 12, size - 12)
-    Utils.putInt(b, 8, size)
+    val b = new Array[Byte](length)
+    in.readFully(b, 12, length - 12)
 
-    val calculatedChecksum = Utils.checksum(b)
-    if (checksum != calculatedChecksum)
-      throw new DataCorruptionException("wrong checksum")
+    if (!skipChecksum) {
+      Utils.putInt(b, 8, length)
+
+      val calculatedChecksum = Utils.checksum(b)
+      if (checksum != calculatedChecksum)
+        throw new DataCorruptionException("wrong checksum")
+    }
 
     val in2 = new DataInputStream(new ByteArrayInputStream(b))
     in2.readLong()
     in2.readInt()
 
-    def read(): ByteArrayWrapper = {
-      val size = in2.readInt()
-      if (size == -1)
-        return Store.tombstone
-      val r = new ByteArrayWrapper(size)
-      in2.readFully(r.data)
-      return r
-    }
-
-    val versionID = read()
-    val prevVersionID = read()
+    val versionID = readByteArray(in2)
+    val prevVersionID = readByteArray(in2)
 
     val keyCount = in2.readInt()
-    val changes = (0 until keyCount).map(i => new QuickChange(read(), read(), read())).toBuffer
-    return new QuickUpdate(versionID = versionID, prevVersionID = prevVersionID, changes = changes)
+    //    val changes =
+    //      if(skipData) Nil
+    //      else (0 until keyCount).map(i => new QuickChange(read(), read(), read())).toBuffer
+    return new QuickUpdate(offset = offset, length = length, versionID = versionID, prevVersionID = prevVersionID, changeCount = keyCount)
   }
+
 
   protected[iodb] def deserializeAllUpdates(consumer: (QuickUpdate) => Unit): Unit = {
     val fin = Files.newInputStream(path, StandardOpenOption.READ)
+    var offset = 0L
     try {
       val din = new DataInputStream(fin)
       while (din.available() > 0) {
-        val u = deserializeUpdate(din)
+        val u = deserializeUpdate(in = din, offset = offset)
         consumer(u)
+        offset += u.length
+      }
+    } finally {
+      fin.close()
+    }
+  }
+
+  protected def deserializeChange(in: DataInput) =
+    new QuickChange(
+      key = readByteArray(in),
+      oldValue = readByteArray(in),
+      newValue = readByteArray(in))
+
+
+  protected def replayChanges(updates: Iterable[QuickUpdate])(consumer: (QuickChange, QuickUpdate) => Unit): Unit = {
+    val fin = new FileInputStream(path.toFile)
+    try {
+      for (update <- updates; if (update.changeCount > 0)) {
+        //seek to offset where data are starting
+        fin.getChannel.position(update.offset + 4 + 8 + 4 + 4 + 4 + update.versionID.size + update.prevVersionID.size)
+
+        //create buffered stream, it can not be reused, `fin` will seek and buffer would become invalid
+        val din = new DataInputStream(new BufferedInputStream(fin))
+        for (i <- 0L until update.changeCount) {
+          val change = deserializeChange(din)
+          consumer(change, update)
+        }
       }
     } finally {
       fin.close()
@@ -205,7 +261,7 @@ class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store
 
       //create linked list of updates
       val updates = new ArrayBuffer[QuickUpdate]()
-      var counter = 0
+      var counter = 0L
       while (lastUpdate.versionID != versionID) {
         lastUpdate = updatesMap(lastUpdate.prevVersionID)
         //cyclic ref protection
@@ -216,17 +272,18 @@ class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store
 
       this.versionID = Some(versionID)
 
-      //got linked list of updates, now replay in reverse order (insert old values)
-      for (u <- updates; change <- u.changes) {
-        if (change.oldValue eq Store.tombstone)
-          keyvals.remove(change.key)
+      //replay in reverse order (insert old values)
+      replayChanges(updates) { (c: QuickChange, u: QuickUpdate) =>
+        if (c.oldValue eq Store.tombstone)
+          keyvals.remove(c.key)
         else
-          keyvals.put(change.key, change.oldValue)
+          keyvals.put(c.key, c.oldValue)
       }
     } finally {
       lock.writeLock().unlock()
     }
   }
+
 
   override def close(): Unit = {}
 
@@ -249,12 +306,15 @@ class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store
 
 }
 
-case class QuickUpdate(
-                        versionID: VersionID,
-                        prevVersionID: VersionID,
-                        changes: Iterable[QuickChange])
 
-case class QuickChange(
+protected case class QuickUpdate(
+                                  offset: Long,
+                                  length: Long, //number of bytes consumed by this update
+                                  versionID: VersionID,
+                                  prevVersionID: VersionID,
+                                  changeCount: Long)
+
+protected case class QuickChange(
                         key: K,
                         oldValue: V,
                         newValue: V)
