@@ -16,16 +16,20 @@ class IODBSpecification extends PropSpec
   with Matchers
   with BeforeAndAfterAll {
 
+
+  val NumberOfBlocks = 100
+  val NumberOfRollbacks = 100
+
   val iFile = TestUtils.tempDir()
   iFile.mkdirs()
 
 
   property("rollback test LSM") {
-    rollbackTest(blockStorage = new LSMStore(iFile))
+    rollbackTest(blockStorage = new LSMStore(iFile, keepVersions = NumberOfRollbacks))
   }
 
   property("writeKey test LSM") {
-    writeKeyTest(blockStorage = new LSMStore(iFile))
+    writeKeyTest(blockStorage = new LSMStore(iFile, keepVersions = NumberOfRollbacks))
   }
 
   property("rollback test quick") {
@@ -39,8 +43,6 @@ class IODBSpecification extends PropSpec
 
   def rollbackTest(blockStorage:Store){
     //initialize test
-    val NumberOfBlocks = 100
-    val NumberOfRollbacks = 100
 
     case class BlockChanges(id: ByteArrayWrapper,
                             toRemove: Seq[ByteArrayWrapper],

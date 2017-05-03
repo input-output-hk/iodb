@@ -37,7 +37,7 @@ class RandomRollbackTest {
     var removed = Set[K]()
     var version = 1L
 
-    val store = new LSMStore(dir = dir, keepVersions = keepVersions, maxJournalEntryCount = 1000, splitSize = 1000, maxFileSize = 64000, executor = null)
+    val store = new LSMStore(dir = dir, keepVersions = keepVersions, maxJournalUpdates = 1000, splitSize = 1000, maxFileSize = 64000, executor = null)
 
     for (i <- 0 until loops) {
       //randomly switch between actions

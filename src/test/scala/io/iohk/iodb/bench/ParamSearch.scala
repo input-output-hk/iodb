@@ -36,7 +36,7 @@ object ParamSearch {
       val store = new LSMStore(
         dir = dir,
         keySize = 32,
-        maxJournalEntryCount = maxJournalEntryCount,
+        maxJournalUpdates = maxJournalEntryCount,
         maxShardUnmergedCount = maxShardUnmergedCount,
         splitSize = splitSize,
         maxFileSize = maxFileSize

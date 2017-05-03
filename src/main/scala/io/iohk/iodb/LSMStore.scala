@@ -44,7 +44,7 @@ class LSMStore(
                 val keySize: Int = 32,
                 val executor: Executor = Executors.newCachedThreadPool(),
                 val taskSchedulerDisabled: Boolean = false,
-                val maxJournalEntryCount: Int = 100000,
+                val maxJournalUpdates: Int = 5,
                 val maxShardUnmergedCount: Int = 4,
                 val splitSize: Int = 100 * 1024,
                 val keepVersions: Int = 0,
@@ -57,8 +57,6 @@ class LSMStore(
   val lock = new ReentrantReadWriteLock()
 
   protected[iodb] var journalNotDistributed: List[LogFileUpdate] = Nil
-  protected[iodb] val journalCache = new util.TreeMap[K, V]
-  //  protected[iodb] var journalLastVersionID: Option[VersionID] = None
 
   protected[iodb] def journalLastVersionID: Option[VersionID] = journalRollback.headOption.map(_.versionID)
 
@@ -74,6 +72,10 @@ class LSMStore(
 
   protected[iodb] val shardRollback =
     new mutable.LinkedHashMap[VersionID, ShardLayout]
+
+  protected var storeOpened = true
+
+  def checkOpened() = if (!storeOpened) throw new StoreAlreadyClosed()
 
   {
     assert(maxFileSize < 1024 * 1024 * 1024, "maximal file size must be < 1GB")
@@ -141,10 +143,6 @@ class LSMStore(
     //find newest entry in journal present which is also present in shard
     //and cut journal, so it does not contain old entries
     journalNotDistributed = j.takeWhile(u => !shardRollback.contains(u.versionID)).toList
-    //restore journal cache
-    keyValues(journalNotDistributed, dropTombstones = false)
-      .foreach(a => journalCache.put(a._1, a._2))
-
     journalRollback = j.toList
 
     if (journalRollback.nonEmpty)
@@ -188,6 +186,7 @@ class LSMStore(
 
   /** creates new journal file, if no file is opened */
   protected def initJournal(): Unit = {
+    checkOpened()
     assert(lock.isWriteLockedByCurrentThread)
     if (journalNotDistributed != Nil)
       return;
@@ -198,6 +197,7 @@ class LSMStore(
   }
 
   protected[iodb] def journalStartNewFile(): Long = {
+    checkOpened()
     assert(lock.isWriteLockedByCurrentThread)
     val fileNum = journalCurrentFileNum() - 1L
     val journalFile = numToFile(fileNum)
@@ -238,8 +238,8 @@ class LSMStore(
       val versionIDSize = buf.getInt()
       val prevVersionIDSize = buf.getInt()
 
-      val versionID = new ByteArrayWrapper(versionIDSize)
-      val prevVersionID = new ByteArrayWrapper(prevVersionIDSize)
+      val versionID = if (versionIDSize < 0) tombstone else new ByteArrayWrapper(versionIDSize)
+      val prevVersionID = if (prevVersionIDSize < 0) tombstone else new ByteArrayWrapper(prevVersionIDSize)
       val isMerged = buf.get() == 1
 
       val verPos = LSMStore.updateHeaderSize + keySize * keyCount + 8 * keyCount
@@ -350,13 +350,15 @@ class LSMStore(
 
     lock.writeLock().lock()
     try {
+      checkOpened()
+
       if (versionIDExists(versionID))
         throw new IllegalArgumentException("versionID is already used")
 
       initJournal()
 
       //last version from journal
-      val prevVersionID = journalLastVersionID.getOrElse(new ByteArrayWrapper(0))
+      val prevVersionID = journalLastVersionID.getOrElse(tombstone)
 
       var journalFileNum = journalCurrentFileNum()
       //if journal file is too big, start new file
@@ -376,17 +378,10 @@ class LSMStore(
       journalNotDistributed = updateEntry :: journalNotDistributed
       journalRollback = updateEntry :: journalRollback
 
-      //update journal cache
-      for (key <- toRemove) {
-        journalCache.put(key, Store.tombstone)
-      }
-      for ((key, value) <- toUpdate) {
-        journalCache.put(key, value)
-      }
 
       //TODO if write fails, how to recover from this? close journal.out?
 
-      if (journalCache.size() > maxJournalEntryCount) {
+      if (journalNotDistributed.size > maxJournalUpdates) {
         //run sharding task
         taskRun {
           taskDistribute()
@@ -483,14 +478,14 @@ class LSMStore(
 
     out2.writeInt(shards.size)
     out2.writeInt(keySize)
-    out2.writeInt(versionID.size)
+    writeValueSize(out2, versionID)
     out2.write(versionID.data)
 
     for (s <- shards) {
       out2.write(s._1.data)
       out2.writeLong(s._2)
       //versionID
-      out2.writeInt(s._3.size)
+      writeValueSize(out2, s._3)
       out2.write(s._3.data)
     }
 
@@ -523,14 +518,18 @@ class LSMStore(
     val keyCount = in2.readInt()
     assert(keySize == in2.readInt())
 
-    val versionID = new VersionID(in2.readInt())
+    val versionIDSize = in2.readInt()
+    val versionID = if (versionIDSize < 0) tombstone else new VersionID(versionIDSize)
     in2.read(versionID.data)
     //read table
     val keyFileNums = (0 until keyCount).map { index =>
       val key = new K(keySize)
       in2.read(key.data)
       val fileNum = in2.readLong()
-      val versionID = new ByteArrayWrapper(in2.readInt())
+      val versionIDSize = in2.readInt()
+      val versionID =
+        if (versionIDSize < 0) tombstone
+        else new ByteArrayWrapper(versionIDSize)
       in2.read(versionID.data)
 
       (key, fileNum, versionID)
@@ -548,6 +547,10 @@ class LSMStore(
     ShardSpec(versionID = versionID, shards = specs)
   }
 
+  private def writeValueSize(out: DataOutput, v: ByteArrayWrapper) {
+    out.writeInt(if (v eq tombstone) -1 else v.size)
+  }
+
   protected[iodb] def serializeUpdate(
                                        versionID: VersionID,
                                        prevVersionID: VersionID,
@@ -558,7 +561,7 @@ class LSMStore(
     //TODO check total size is <2GB
 
     //check for key size
-    assert((versionID == tombstone && prevVersionID == tombstone) ||
+    assert(((versionID eq tombstone) && (prevVersionID eq tombstone)) ||
       data.forall(_._1.size == keySize), "wrong key size")
 
     val out = new ByteArrayOutputStream()
@@ -573,8 +576,8 @@ class LSMStore(
     out2.writeInt(keySize) // key size
 
     //versions
-    out2.writeInt(versionID.size)
-    out2.writeInt(prevVersionID.size)
+    writeValueSize(out2, versionID)
+    writeValueSize(out2, prevVersionID)
 
     out2.writeBoolean(isMerged) //is merged
 
@@ -586,7 +589,7 @@ class LSMStore(
     //write value sizes and their offsets
     data.foreach { t =>
       val value = t._2
-      if (value == Store.tombstone) {
+      if (value eq Store.tombstone) {
         //tombstone
         out2.writeInt(-1)
         out2.writeInt(0)
@@ -594,8 +597,9 @@ class LSMStore(
         //actual data
         out2.writeInt(value.size)
         out2.writeInt(valueOffset)
-        valueOffset += value.size
+
       }
+      valueOffset += value.size
     }
 
     out2.write(versionID.data)
@@ -618,6 +622,8 @@ class LSMStore(
   override def lastVersionID: Option[VersionID] = {
     lock.readLock().lock()
     try {
+      checkOpened()
+
       journalLastVersionID
     } finally {
       lock.readLock().unlock()
@@ -649,22 +655,18 @@ class LSMStore(
   def get(key: K): Option[V] = {
     lock.readLock().lock()
     try {
-      val ret2 = journalCache.get(key)
-      if (ret2 eq tombstone)
-        return None
-      if (ret2 != null)
-        return Some(ret2)
+      checkOpened()
 
-      //      var ret = getUpdates(key, journal)
-      //      if(ret!=null)
-      //        return ret
+      var ret = getUpdates(key, journalNotDistributed)
+      if (ret != null)
+        return ret
 
       //not found in journal, look at shards
       val shardEntry = shards.floorEntry(key)
       if (shardEntry == null)
         return None // shards not initialized yet
 
-      val ret = getUpdates(key, shardEntry.getValue)
+      ret = getUpdates(key, shardEntry.getValue)
       if (ret != null)
         return ret
 
@@ -682,13 +684,20 @@ class LSMStore(
   def taskDistribute(): Unit = {
     lock.writeLock().lock()
     try {
+      checkOpened()
+
       val versionID = lastVersionID.getOrElse(null)
       if (versionID == null)
         return // empty store
-      if (journalCache.isEmpty)
+      if (journalNotDistributed.isEmpty)
         return
 
-      Utils.LOG.log(Level.FINE, "Run Sharding Task for " + journalCache.size() + " keys.")
+      Utils.LOG.log(Level.FINE, "Run Sharding Task for " + journalNotDistributed.size + " updates.")
+
+      val journalCache = new util.TreeMap[K, V]()
+      for ((k, v) <- keyValues(journalNotDistributed, dropTombstones = false)) {
+        journalCache.put(k, v)
+      }
 
       if (shards.isEmpty && !journalCache.isEmpty) {
         //add lowest possible key for given size
@@ -726,8 +735,6 @@ class LSMStore(
         }
         hiKey
       }
-
-      journalCache.clear()
       journalNotDistributed = Nil
 
       //backup current shard layout
@@ -769,6 +776,8 @@ class LSMStore(
   def taskShardMerge(shardKey: K): Unit = {
     lock.writeLock().lock()
     try {
+      checkOpened()
+
       val shard = shards.get(shardKey)
       if (shard == null)
         return // shard not present
@@ -839,16 +848,19 @@ class LSMStore(
   override def getAll(consumer: (K, V) => Unit) = {
     lock.readLock().lock()
     try {
+      checkOpened()
+
+      val journalCache = keyValues(journalNotDistributed, dropTombstones = true).toMap
       //iterate over all shards, and add content not present in journal
       val shards2 = shards.values().asScala.toBuffer
       for (shard: List[LogFileUpdate] <- shards2;
            (k, v) <- keyValues(shard, dropTombstones = true)) {
-        if (!journalCache.containsKey(k)) {
+        if (!journalCache.contains(k)) {
           consumer(k, v)
         }
       }
       //include journal cache
-      for ((k, v) <- journalCache.asScala.filterNot(a => a._2 eq tombstone)) {
+      for ((k, v) <- journalCache.filterNot(a => a._2 eq tombstone)) {
         consumer(k, v)
       }
     } finally {
@@ -869,6 +881,8 @@ class LSMStore(
 
     lock.writeLock().lock()
     try {
+      checkOpened()
+
       if (journalRollback.isEmpty)
         notFound()
 
@@ -898,18 +912,13 @@ class LSMStore(
       if (lastShard == null) {
         //Reached end of journalRollback, without finding shard layout
         //Check if journal log was not truncated
-        if (journalRollback.last.prevVersionID != tombstone)
+        if (!(journalRollback.last.prevVersionID eq tombstone))
           notFound()
         shards.clear()
       } else {
         shards = lastShard
       }
-      //rebuild journal cache
-      journalCache.clear()
 
-      keyValues(j, dropTombstones = false).foreach { e =>
-        journalCache.put(e._1, e._2)
-      }
       journalNotDistributed = j
 
       //insert new marker update to journal, so when reopened we start with this version
@@ -929,10 +938,15 @@ class LSMStore(
   override def close(): Unit = {
     lock.writeLock().lock()
     try {
+      checkOpened()
+
       fileHandles.values.foreach(fileAccess.close(_))
       fileHandles.clear()
       taskCleanup()
+      journalNotDistributed = Nil
+      shards.clear()
     } finally {
+      storeOpened = false
       lock.writeLock().unlock()
     }
   }
@@ -962,7 +976,7 @@ class LSMStore(
         include
       }
       //drop the tombstones
-      .filter(it => !dropTombstones || it._3 != Store.tombstone)
+      .filter(it => !dropTombstones || !(it._3 eq Store.tombstone))
       //remove update
       .map(it => (it._1, it._3))
 
@@ -1007,6 +1021,8 @@ class LSMStore(
     try {
       if (fileHandles.isEmpty)
         return
+      checkOpened()
+
       //this updates will be preserved
       var index = Math.max(keepVersions, journalNotDistributed.size)
       //expand index until we find shard or reach end

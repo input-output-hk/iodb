@@ -22,7 +22,9 @@ class Issue16_get_after_close extends TestWithTempDir {
     lSMStore.update(ByteArrayWrapper(testByteArray), Seq(), Seq())
 
     lSMStore.close()
-    lSMStore.get(ByteArrayWrapper(testByteArray)) //JVM Crashes
+    intercept[StoreAlreadyClosed] {
+      lSMStore.get(ByteArrayWrapper(testByteArray))
+    }
   }
 
 }

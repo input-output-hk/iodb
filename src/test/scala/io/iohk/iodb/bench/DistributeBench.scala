@@ -14,7 +14,7 @@ object DistributeBench extends Benchmark {
 
     val dir = tempDir()
     val store = new LSMStore(dir = dir, keySize = 8,
-      maxJournalEntryCount = Integer.MAX_VALUE, //distribute task will be triggered manually
+      maxJournalUpdates = Integer.MAX_VALUE, //distribute task will be triggered manually
       maxShardUnmergedCount = 1000,
       executor = null, taskSchedulerDisabled = true
     )

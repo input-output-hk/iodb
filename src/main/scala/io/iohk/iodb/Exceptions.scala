@@ -7,3 +7,5 @@ class DataCorruptionException(msg: String)
   extends RuntimeException(msg) {
 
 }
+
+class StoreAlreadyClosed extends RuntimeException("Store was already closed")

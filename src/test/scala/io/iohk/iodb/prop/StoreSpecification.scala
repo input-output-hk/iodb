@@ -55,7 +55,7 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
 
   override def newSut(state: State): LSMStore = {
     val folder = TestUtils.tempDir()
-    val s = new LSMStore(folder, maxJournalEntryCount = maxJournalEntryCount, keepVersions = keepVersion /*, executor = null*/)
+    val s = new LSMStore(folder, maxJournalUpdates = maxJournalEntryCount, keepVersions = keepVersion /*, executor = null*/)
     s.update(state.version, state.removed, state.appended)
     s
   }
