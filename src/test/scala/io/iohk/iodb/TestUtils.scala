@@ -28,9 +28,9 @@ object TestUtils {
   }
 
   /** generates random byte[] of given size */
-  def randomA(size: Int = 32): ByteArrayWrapper = {
+  def randomA(size: Int = 32, random: Random = new Random()): ByteArrayWrapper = {
     val b = new Array[Byte](size)
-    Random.nextBytes(b)
+    random.nextBytes(b)
     ByteArrayWrapper(b)
   }
 

@@ -14,7 +14,11 @@ import scala.collection.mutable.ArrayBuffer
 /**
   * Keeps all data in-memory. Also uses log file to provide durability and rollbacks
   */
-class QuickStore(val dir: File, filePrefix: String = "quickStore") extends Store {
+class QuickStore(
+                  val dir: File,
+                  val filePrefix: String = "quickStore",
+                  val keepVersions: Int = 0
+                ) extends Store {
 
   protected val lock = new ReentrantReadWriteLock()
   protected val keyvals = new mutable.HashMap[K, V]()
