@@ -28,6 +28,10 @@ class IODBSpecification extends PropSpec
     writeKeyTest(blockStorage = new LSMStore(iFile))
   }
 
+  property("doubleRollbackTest test LSM") {
+    doubleRollbackTest(blockStorage = new LSMStore(iFile))
+  }
+
   property("rollback test quick") {
     rollbackTest(blockStorage = new QuickStore(iFile))
   }
@@ -36,29 +40,36 @@ class IODBSpecification extends PropSpec
     writeKeyTest(blockStorage = new QuickStore(iFile))
   }
 
+  property("doubleRollbackTest test quick") {
+    doubleRollbackTest(blockStorage = new QuickStore(iFile))
+  }
 
-  def rollbackTest(blockStorage:Store){
+  /**
+    * double rollback to the same id
+    */
+  def doubleRollbackTest(blockStorage: Store): Unit = {
+    val data = generateBytes(100)
+    val block1 = BlockChanges(data.head._1, Seq(), data.take(50))
+    val block2 = BlockChanges(data(51)._1, data.map(_._1).take(20), data.slice(51, 61))
+    val block3 = BlockChanges(data(61)._1, data.map(_._1).slice(20, 30), data.slice(61, 71))
+    blockStorage.update(block1.id, block1.toRemove, block1.toInsert)
+    blockStorage.update(block2.id, block2.toRemove, block2.toInsert)
+    blockStorage.rollback(block1.id)
+    blockStorage.update(block3.id, block3.toRemove, block3.toInsert)
+    blockStorage.rollback(block1.id)
+  }
+
+
+  def rollbackTest(blockStorage: Store) {
     //initialize test
     val NumberOfBlocks = 100
     val NumberOfRollbacks = 100
-
-    case class BlockChanges(id: ByteArrayWrapper,
-                            toRemove: Seq[ByteArrayWrapper],
-                            toInsert: Seq[(ByteArrayWrapper, ByteArrayWrapper)])
-
-    def hash(b: Array[Byte]): Array[Byte] = MessageDigest.getInstance("SHA-256").digest(b)
-
-    def randomBytes(): ByteArrayWrapper = ByteArrayWrapper(hash(Random.nextString(16).getBytes))
-
-    def generateBytes(): Seq[(ByteArrayWrapper, ByteArrayWrapper)] = {
-      (0 until Random.nextInt(100)).map(i => (randomBytes(), randomBytes()))
-    }
 
     val (blockchain: IndexedSeq[BlockChanges], existingKeys: Seq[ByteArrayWrapper]) = {
       @tailrec
       def loop(acc: IndexedSeq[BlockChanges], existingKeys: Seq[ByteArrayWrapper]): (IndexedSeq[BlockChanges], Seq[ByteArrayWrapper]) = {
         if (acc.length < NumberOfBlocks) {
-          val toInsert = generateBytes()
+          val toInsert = generateBytes(Random.nextInt(100))
           val toRemove: Seq[ByteArrayWrapper] = existingKeys.filter(k => Random.nextBoolean())
           val newExistingKeys = existingKeys.filter(ek => !toRemove.contains(ek)) ++ toInsert.map(_._1)
           val newBlock = BlockChanges(randomBytes(), toRemove, toInsert)
@@ -97,7 +108,7 @@ class IODBSpecification extends PropSpec
   }
 
 
-  def writeKeyTest(blockStorage:Store){
+  def writeKeyTest(blockStorage: Store) {
     var ids: Seq[ByteArrayWrapper] = Seq()
     var removed: Seq[ByteArrayWrapper] = Seq()
     var i = 0
@@ -137,6 +148,19 @@ class IODBSpecification extends PropSpec
     }
     ids.foreach(id => blockStorage.rollbackVersions().exists(_ == id) shouldBe true)
 
+  }
+
+
+  case class BlockChanges(id: ByteArrayWrapper,
+                          toRemove: Seq[ByteArrayWrapper],
+                          toInsert: Seq[(ByteArrayWrapper, ByteArrayWrapper)])
+
+  def hash(b: Array[Byte]): Array[Byte] = MessageDigest.getInstance("SHA-256").digest(b)
+
+  def randomBytes(): ByteArrayWrapper = ByteArrayWrapper(hash(Random.nextString(16).getBytes))
+
+  def generateBytes(howMany: Int): Seq[(ByteArrayWrapper, ByteArrayWrapper)] = {
+    (0 until howMany).map(i => (randomBytes(), randomBytes()))
   }
 
 
