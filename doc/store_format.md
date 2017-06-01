@@ -20,10 +20,10 @@ Each Log Entry has following header:
     - is calculated from entire entry including checksum (filled with zeroes)
 * **entry size** - int - number of bytes consumed by this entry, includes checksum
 * **Update Type** - byte - identifies type of Log Entry that follows
-    - 1 - Update Entry
-    - 2 - Distribute Entry
-    - 3 - Offset Alias
-    - 4 - Merge Entry
+    * 1 - Update Entry
+    * 2 - Distribute Entry
+    * 3 - Offset Alias
+    * 4 - Merge Entry
     
 ### Update Entry
 Is written to Journal or Shard on each Update
@@ -60,9 +60,9 @@ When Distribute Entry is found in Journal, its traversal should finish and trave
 * **shard count** - int - number of shards in this Distribute Entry
 
 * section with Shard Prefix and file offsets
-    **shard prefix** - int - first 4 bytes of shard key
-    **shard pos file offset** - long - position in Shard where traversal continues for given version
-    **shard pos file number** - long - filenumber in Shard where traversal continues for given version 
+    * **shard prefix** - int - first 4 bytes of shard key
+    * **shard pos file offset** - long - position in Shard where traversal continues for given version
+    * **shard pos file number** - long - filenumber in Shard where traversal continues for given version 
 
 
 ### Offset Alias 
