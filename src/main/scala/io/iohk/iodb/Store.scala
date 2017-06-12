@@ -12,6 +12,9 @@ object Store {
   /** type used for versionID */
   type VersionID = ByteArrayWrapper
 
+  type FileNum = Long
+  type FileOffset = Long
+
   val tombstoneByteArray = new Array[Byte](0)
   val tombstone = new ByteArrayWrapper(tombstoneByteArray)
 }

@@ -20,7 +20,7 @@ protected[iodb] object LSMStore {
 
   val fileJournalPrefix = "journal"
   val fileShardPrefix = "shard-"
-  val updateHeaderSize = +8 + 4 + 4 + 4 + 4 + 4 + 1
+  val updateHeaderSize = +4 + 1 + 8 + 8 + 4 + 4 + 4 + 1
 
   val shardLayoutLog = "shardLayoutLog"
 
@@ -598,7 +598,6 @@ class LSMStore(
       }
     }
 
-    out2.write(versionID.data)
     out2.write(prevVersionID.data)
 
     //write values
@@ -940,7 +939,6 @@ class LSMStore(
 
   protected[iodb] def keyValues(fileLog: List[LogFileUpdate], dropTombstones: Boolean): Iterator[(K, V)] = {
     //assert that all updates except last are merged
-
     val iters = fileLog.zipWithIndex.map { a =>
       val u = a._1
       val index = a._2

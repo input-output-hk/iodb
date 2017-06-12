@@ -1,19 +1,14 @@
 package io.iohk.iodb;
 
-import net.jpountz.xxhash.XXHash64;
-import net.jpountz.xxhash.XXHashFactory;
+import net.jpountz.xxhash.*;
 import sun.misc.Cleaner;
 import sun.nio.ch.DirectBuffer;
 
-import java.io.EOFException;
-import java.io.File;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.io.*;
+import java.nio.*;
 import java.nio.channels.FileChannel;
 import java.util.Comparator;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.util.logging.*;
 
 /**
  * Java utilities
@@ -244,7 +239,12 @@ class Utils {
     private static final XXHash64 hash64 = XXHashFactory.fastestJavaInstance().hash64();
 
     public static long checksum(byte[] data) {
+        return checksum(data, 0, data.length);
+    }
+
+
+    public static long checksum(byte[] data, int startOffset, int size) {
         int seed = 0x3289989d;
-        return hash64.hash(data, 0, data.length, seed);
+        return hash64.hash(data, startOffset, size, seed);
     }
 }

@@ -14,9 +14,16 @@ object TestUtils {
   def dirSize(dir: File): Long = dir.listFiles().map(_.length()).sum
 
   def tempDir(): File = {
-    val dir = new File(System.getProperty("java.io.tmpdir") + "/iodb" + Math.random())
+    val dir = new File(System.getProperty("java.io.tmpdir") + File.separator + "iodb" + Math.random())
     dir.mkdirs()
     dir
+  }
+
+
+  def tempFile(): File = {
+    val ret = new File(System.getProperty("java.io.tmpdir") + File.separator + "iodb" + Math.random())
+    ret.deleteOnExit()
+    return ret
   }
 
   def deleteRecur(dir: File): Unit = {

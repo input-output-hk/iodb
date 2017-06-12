@@ -12,18 +12,24 @@ They both share the same format and are composed of log entries
 ## Types of Log Entries
 
 
-### Header
+### Header and tail
 Each Log Entry has following header:
 
-* **checksum** - long - checksum for update entry 
-    - it uses proprietary [64bit XXHash](https://github.com/jpountz/lz4-java/tree/master/src/java/net/jpountz/xxhash)
-    - is calculated from entire entry including checksum (filled with zeroes)
 * **entry size** - int - number of bytes consumed by this entry, includes checksum
 * **Update Type** - byte - identifies type of Log Entry that follows
     * 1 - Update Entry
     * 2 - Distribute Entry
     * 3 - Offset Alias
     * 4 - Merge Entry
+
+This is followed by other data from Log Entry
+
+Each Log Entry ends with checksum:
+
+* **checksum** - long - checksum for update entry 
+    - it uses proprietary [64bit XXHash](https://github.com/jpountz/lz4-java/tree/master/src/java/net/jpountz/xxhash)
+    - is calculated from entire entry including header, but excluding checksum 
+
     
 ### Update Entry
 Is written to Journal or Shard on each Update

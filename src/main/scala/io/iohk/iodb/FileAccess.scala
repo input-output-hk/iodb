@@ -33,7 +33,7 @@ sealed abstract class FileAccess {
     * @param data
     */
 
-  def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit
+  def readData(fileHandle: Any, offset: Long, data: Array[Byte]): Unit
 
   /**
     * Read all key-value pairs from given log file
@@ -65,6 +65,17 @@ sealed abstract class FileAccess {
     */
   def expandFileSize(file: Any): Any = file
 
+  def readLong(file: Any, offset: Long): Long = {
+    val b = ByteBuffer.allocate(8)
+    readData(file, offset, b.array())
+    return b.getLong(0)
+  }
+
+  def readInt(file: Any, offset: Long): Int = {
+    val b = ByteBuffer.allocate(4)
+    readData(file, offset, b.array())
+    return b.getInt(0)
+  }
 }
 
 object FileAccess {
@@ -122,10 +133,10 @@ object FileAccess {
       * @param offset
       * @param data
       */
-    override def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit = {
+    override def readData(fileHandle: Any, offset: Long, data: Array[Byte]): Unit = {
       checkBufferSize(fileHandle)
       val buf2 = castBuf(fileHandle).duplicate()
-      buf2.position(offset)
+      buf2.position(offset.toInt)
       buf2.get(data)
     }
 
@@ -257,9 +268,7 @@ object FileAccess {
       val c = cast(fileHandle)
       val tempBuf = ByteBuffer.allocate(8)
 
-      //get size
-      //      val updateSize = readInt(c, updateOffset + 8, tempBuf)
-      val keyCount: Long = readInt(c, updateOffset + 8 + 4, tempBuf)
+      val keyCount: Long = readInt(c, updateOffset + 4 + 1 + 8 + 8, tempBuf)
 
       val baseKeyOffset = updateOffset + LSMStore.updateHeaderSize
 
@@ -316,10 +325,10 @@ object FileAccess {
       return buf.getInt(0)
     }
 
-    override def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit = {
+    override def readData(fileHandle: Any, offset: Long, data: Array[Byte]): Unit = {
       val c = cast(fileHandle)
       val b = ByteBuffer.wrap(data)
-      c.position(offset)
+      c.position(offset.toInt)
       Utils.readFully(c, offset, b)
     }
 
@@ -328,8 +337,8 @@ object FileAccess {
       val tempBuf = ByteBuffer.allocate(8)
 
       //get size
-      val updateSize = readInt(c, offset + 8, tempBuf)
-      val keyCount = readInt(c, offset + 8 + 4, tempBuf)
+      val updateSize = readInt(c, offset, tempBuf)
+      val keyCount = readInt(c, offset + 4 + 1 + 8 + 8, tempBuf)
       assert(keyCount * keySize >= 0 && keyCount * keySize < updateSize)
 
       val baseKeyOffset = offset + LSMStore.updateHeaderSize
@@ -381,7 +390,7 @@ object FileAccess {
       }
     }
 
-    override def readData(fileHandle: Any, offset: Int, data: Array[Byte]): Unit = {
+    override def readData(fileHandle: Any, offset: Long, data: Array[Byte]): Unit = {
       val c = open2(fileHandle)
       try {
         FILE_CHANNEL.readData(fileHandle = c, offset = offset, data = data)
