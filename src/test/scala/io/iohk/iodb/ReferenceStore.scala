@@ -1,6 +1,5 @@
-package io.iohk.iodb.unit
+package io.iohk.iodb
 
-import io.iohk.iodb.Store
 import io.iohk.iodb.Store.{K, V, VersionID}
 
 import scala.collection.mutable

@@ -268,7 +268,7 @@ object FileAccess {
       val c = cast(fileHandle)
       val tempBuf = ByteBuffer.allocate(8)
 
-      val keyCount: Long = readInt(c, updateOffset + 4 + 1 + 8 + 8, tempBuf)
+      val keyCount: Long = readInt(c, updateOffset + LogStore.updateKeyCountOffset, tempBuf)
 
       val baseKeyOffset = updateOffset + LSMStore.updateHeaderSize
 
@@ -333,12 +333,13 @@ object FileAccess {
     }
 
     override def readKeyValues(fileHandle: Any, offset: Long, keySize: Int): Iterator[(K, V)] = {
+      assert(offset >= 0)
       val c = cast(fileHandle)
       val tempBuf = ByteBuffer.allocate(8)
 
       //get size
       val updateSize = readInt(c, offset, tempBuf)
-      val keyCount = readInt(c, offset + 4 + 1 + 8 + 8, tempBuf)
+      val keyCount = readInt(c, offset + LogStore.updateKeyCountOffset, tempBuf)
       assert(keyCount * keySize >= 0 && keyCount * keySize < updateSize)
 
       val baseKeyOffset = offset + LSMStore.updateHeaderSize
