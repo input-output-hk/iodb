@@ -94,20 +94,59 @@ abstract class StoreTest extends TestWithTempDir{
   }
 
 
+  def makeKeyVal(key: Long, value: Long) = List((fromLong(key), fromLong(value)))
+
   @Test def getVersions(): Unit = {
     val store = open(keySize = 8)
 
     val versions = (0L until 100).map(fromLong).toBuffer
-    val updates = List((fromLong(1L), fromLong(1)))
+    val updates = makeKeyVal(1, 1)
 
     for (version <- versions) {
       store.update(versionID = version, toUpdate = updates, toRemove = Nil)
+      assertEquals(Some(fromLong(1L)), store.get(fromLong(1L)))
+      assertEquals(Some(version), store.lastVersionID)
     }
-    assertEquals(Some(fromLong(1L)), store.get(fromLong(1L)))
     val versions2 = store.rollbackVersions().toBuffer
-    assertEquals(versions.reverse, versions2)
+    assertEquals(versions, versions2)
     store.close()
   }
+
+  @Test def ropen(): Unit = {
+    var store = open(keySize = 8)
+
+    store.update(versionID = fromLong(1), toUpdate = makeKeyVal(1, 1), toRemove = Nil)
+    assertEquals(Some(fromLong(1)), store.lastVersionID)
+    assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
+
+    store.close()
+    store = open(keySize = 8)
+    assertEquals(Some(fromLong(1)), store.lastVersionID)
+    assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
+  }
+
+  @Test def rollback(): Unit = {
+    var store = open(keySize = 8)
+
+    store.update(versionID = fromLong(1), toUpdate = makeKeyVal(1, 1), toRemove = Nil)
+    store.update(versionID = fromLong(2), toUpdate = makeKeyVal(1, 2), toRemove = Nil)
+    assertEquals(Some(fromLong(2)), store.lastVersionID)
+    assertEquals(Some(fromLong(2)), store.get(fromLong(1)))
+    store.rollback(fromLong(1))
+    assertEquals(Some(fromLong(1)), store.lastVersionID)
+    assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
+
+    //reopen, rollback should be preserved
+    store.close()
+    store = open(keySize = 8)
+    assertEquals(Some(fromLong(1)), store.lastVersionID)
+    assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
+  }
+
+  @Test def longRunningUpdates(): Unit = {
+
+  }
+
 }
 
 

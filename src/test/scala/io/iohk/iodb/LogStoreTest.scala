@@ -104,7 +104,7 @@ class LogStoreTest extends StoreTest {
       store.get(tombstone) //initialize fAccess handle
 
       //try to get all key/vals from last update
-      val keyVals = store.fileAccess.readKeyValues(store.fileHandle, store.validPos.get.offset, keySize = 32).toBuffer
+      val keyVals = store.fileAccess.readKeyValues(store.fileHandles.firstEntry().getValue, store.validPos.get.offset, keySize = 32).toBuffer
       val toUpdate2 = keyVals.filterNot(_._2 eq tombstone).toMap
       val toRemove2 = keyVals.filter(_._2 eq tombstone).map(_._1).toSet
       assertEquals(toUpdate, toUpdate2)
