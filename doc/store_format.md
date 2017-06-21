@@ -34,8 +34,8 @@ Each Log Entry ends with checksum:
 ### Update Entry
 Is written to Journal or Shard on each Update
 
-* **prev update file offset** - long - offset of previous Update in file
 * **prev update file number** - long - file number of file where previous Update is
+* **prev update file offset** - long - offset of previous Update in file
 * **key count** - int - number of keys in this Update
 * **key size** - int - number of bytes in each key in this Update
 * **versionID size** - int - number of bytes used in versionID
@@ -61,21 +61,27 @@ Distribute Entry is written to Journal after Distribute Task finishes.
 Distribute Entry finishes log traversal (while finding keys) similar way Merge Entry does.
 When Distribute Entry is found in Journal, its traversal should finish and traversal continues in Shards
 
-* **prev update file offset** - long - offset of previous Update in file
 * **prev update file number** - long - file number of file where previous Update is
+* **prev update file offset** - long - offset of previous Update in file
+
+
 * **shard count** - int - number of shards in this Distribute Entry
 
 * section with Shard Prefix and file offsets
     * **shard prefix** - int - first 4 bytes of shard key
-    * **shard pos file offset** - long - position in Shard where traversal continues for given version
     * **shard pos file number** - long - filenumber in Shard where traversal continues for given version 
+    * **shard pos file offset** - long - position in Shard where traversal continues for given version
 
 
 ### Offset Alias 
 
 Stored in Journal.  Is used to reconstruct Offset Alias table when Journal is reopened.
 
-TODO format
+* **old update file number** - long - file number of file where previous Update is
+* **old prev update file offset** - long - offset of previous Update in file
+* **new prev update file number** - long - new file number, replaces old file number
+* **new prev update file offset** - long - new file offset, replaces old offset
+ 
 
 ### Merge Entry
 

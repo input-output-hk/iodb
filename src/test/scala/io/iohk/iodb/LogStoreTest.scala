@@ -113,4 +113,47 @@ class LogStoreTest extends StoreTest {
     store.close()
   }
 
+  @Test def startNewFile(): Unit = {
+    val store = new LogStore(dir = dir, keySize = 8)
+    for (i <- 1L until 10) {
+      store.update(fromLong(i), toUpdate = makeKeyVal(i, i), toRemove = Nil)
+      assert(dir.listFiles().filter(_.length() > 0).size == i)
+      store.startNewFile()
+    }
+    store.close()
+  }
+
+  @Test def offset_allias(): Unit = {
+    var store = new LogStore(dir = dir, keySize = 8)
+
+    def update(i: Long) = store.update(fromLong(i), toUpdate = makeKeyVal(i, i), toRemove = Nil)
+
+    update(0)
+    store.startNewFile()
+    update(1)
+    store.startNewFile()
+    update(2)
+    store.startNewFile()
+    update(3)
+
+    //skip over #2
+    store.appendFileAlias(2, 0, 1, 0)
+
+    def check() {
+      assert(List(fromLong(0), fromLong(1), fromLong(3)) == store.rollbackVersions())
+      assert(Some(fromLong(0)) == store.get(fromLong(0)))
+      assert(Some(fromLong(1)) == store.get(fromLong(1)))
+      assert(None == store.get(fromLong(2)))
+      assert(Some(fromLong(3)) == store.get(fromLong(3)))
+    }
+
+    val aliases = store.offsetAliases
+    check()
+    //reopen
+    store.close()
+    store = new LogStore(dir = dir, keySize = 8)
+    assert(aliases == store.offsetAliases)
+    check()
+  }
+
 }

@@ -144,7 +144,16 @@ abstract class StoreTest extends TestWithTempDir{
   }
 
   @Test def longRunningUpdates(): Unit = {
-
+    val cycles = 100 + 100000 * TestUtils.longTest()
+    val store = open(keySize = 8)
+    for (c <- 0L until cycles) {
+      val toUpdate = (0 until 1000).map { k => (fromLong(k), fromLong(1)) }
+      store.update(versionID = fromLong(c), toUpdate = toUpdate, toRemove = Nil)
+      assert(TestUtils.dirSize(dir) < 1e8)
+      if (c % 10000 == 0)
+        store.clean(10000)
+    }
+    store.close()
   }
 
 }

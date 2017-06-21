@@ -2,9 +2,9 @@ package io.iohk.iodb
 
 import java.io.{ByteArrayOutputStream, DataOutputStream, File, FileOutputStream}
 import java.nio.ByteBuffer
-import java.util.concurrent.ConcurrentSkipListMap
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantLock
+import java.util.concurrent.{ConcurrentHashMap, ConcurrentSkipListMap}
 
 import com.google.common.collect.Iterators
 import io.iohk.iodb.Store._
@@ -19,6 +19,12 @@ object LogStore {
   val updateKeyCountOffset = updatePrevFileOffset + 8
 
   val updateVersionIDSize = updateKeyCountOffset + 8
+
+
+  val headUpdate = 1.toByte
+  val headDistribute = 2.toByte
+  val headAlias = 3.toByte
+  val headMerge = 4.toByte
 }
 
 case class FilePos(fileNum: FileNum, offset: FileOffset)
@@ -34,27 +40,25 @@ class LogStore(
                 val fileSuffix: String = ".journal"
               ) extends Store {
 
-  protected val appendLock = new ReentrantLock()
 
-  protected val ENTRY_TYPE_UPDATE: Byte = 1
+  protected val appendLock = new ReentrantLock()
 
   /** position of last valid entry in log file.
     *
     * Is read without lock, is updated under `appendLock` after file sync
     */
-  protected[iodb] val validPos = new AtomicReference(new FilePos(-1L, -1L))
+  protected[iodb] val validPos = new AtomicReference(new FilePos(fileNum = -1L, offset = -1L))
 
   /** End of File. New records will be appended here
-    *
-    *
     */
-  protected[iodb] var eof = new FilePos(0L, 0L)
+  protected[iodb] var eof = new FilePos(fileNum = 0L, offset = 0L)
 
-  protected val fileJournal = new File(dir, filePrefix + "0" + fileSuffix)
+  protected var fileJournal = new File(dir, filePrefix + "0" + fileSuffix)
   protected var fout: FileOutputStream = null
 
   protected[iodb] val fileHandles = new ConcurrentSkipListMap[Long, Any]()
-  //  protected[iodb] var fileHandle: Any = fileAccess.open(fileJournal.getPath)
+
+  protected[iodb] val offsetAliases = new ConcurrentHashMap[FilePos, FilePos]()
 
   {
     //open all files in folder
@@ -68,16 +72,10 @@ class LogStore(
       fileHandles.put(num, handle)
     }
 
-
-    //replay log if it exists
-    if (!fileHandles.isEmpty) {
-      //start replay at beginning of last file
-      var fileNum = fileHandles.lastKey()
-      var fileHandle = fileHandles.lastEntry().getValue
-      var offset = 0
-      val length = fileAccess.fileSize(fileHandle)
-
-      //FIXME howto handle data corruption? still allow store to be opened, if there is corruption
+    //replay all files to restore offsetAliases
+    for ((fileNum, fileHandle) <- fileHandles.asScala) {
+      var offset = 0L
+      var length = fileAccess.fileSize(fileHandle)
       while (offset < length) {
         val size = fileAccess.readInt(fileHandle, offset)
         //verify checksum
@@ -88,9 +86,35 @@ class LogStore(
 
         assert(calcChecksum == expectChecksum)
 
-        validPos.set(new FilePos(fileNum, offset))
+        val head = b(4)
+
+        if (head == LogStore.headUpdate)
+          validPos.set(new FilePos(fileNum = fileNum, offset = offset))
+
+        if (head == LogStore.headAlias) {
+          val oldPos = new FilePos(
+            fileNum = fileAccess.readLong(fileHandle, offset + LogStore.updatePrevFileNum),
+            offset = fileAccess.readLong(fileHandle, offset + LogStore.updatePrevFileOffset)
+          )
+          val newPos = new FilePos(
+            fileNum = fileAccess.readLong(fileHandle, offset + LogStore.updatePrevFileOffset + 8),
+            offset = fileAccess.readLong(fileHandle, offset + LogStore.updatePrevFileOffset + 8 + 8)
+          )
+          offsetAliases.put(oldPos, newPos)
+        }
         offset += size
       }
+
+    }
+    //replay log if it exists
+    if (!fileHandles.isEmpty) {
+      //start replay at beginning of last file
+      var fileNum = fileHandles.lastKey()
+      var fileHandle = fileHandles.lastEntry().getValue
+      var offset = 0
+      val length = fileAccess.fileSize(fileHandle)
+
+      //FIXME howto handle data corruption? still allow store to be opened, if there is corruption
     }
   }
 
@@ -113,8 +137,8 @@ class LogStore(
                                        versionID: VersionID,
                                        data: Iterable[(K, V)],
                                        isMerged: Boolean,
-                                       prevFileOffset: Long,
-                                       prevFileNumber: Long
+                                       prevFileNumber: Long,
+                                       prevFileOffset: Long
 
                                      ): Array[Byte] = {
 
@@ -125,10 +149,10 @@ class LogStore(
     out2.writeInt(0)
 
     //update type
-    out2.writeByte(ENTRY_TYPE_UPDATE)
+    out2.writeByte(LogStore.headUpdate)
 
-    out2.writeLong(prevFileOffset)
     out2.writeLong(prevFileNumber)
+    out2.writeLong(prevFileOffset)
 
     out2.writeInt(data.size)
     out2.writeInt(keySize)
@@ -192,8 +216,8 @@ class LogStore(
       val serialized = serializeUpdate(
         versionID = versionID,
         data = data,
-        prevFileOffset = oldPos.offset,
         prevFileNumber = oldPos.fileNum,
+        prevFileOffset = oldPos.offset,
         isMerged = false
       )
 
@@ -201,7 +225,47 @@ class LogStore(
       append(serialized)
       //and update pointers
       validPos.set(eof)
-      eof = new FilePos(eof.fileNum, eof.offset + serialized.length)
+      eof = new FilePos(fileNum = eof.fileNum, offset = eof.offset + serialized.length)
+    } finally {
+      appendLock.unlock()
+    }
+  }
+
+  protected[iodb] def startNewFile() {
+    appendLock.lock()
+    try {
+      if (fout != null) {
+        fout.close()
+        fout = null
+      }
+      val offsets = loadUpdateOffsets()
+      val newFileNumber = fileHandles.lastKey() + 1
+      fileJournal = new File(dir, filePrefix + newFileNumber + fileSuffix)
+      fout = new FileOutputStream(fileJournal)
+      val fileHandle = fileAccess.open(fileJournal.getPath)
+      fileHandles.put(newFileNumber, fileHandle)
+      eof = new FilePos(fileNum = newFileNumber, offset = 0)
+    } finally {
+      appendLock.unlock()
+    }
+  }
+
+  protected[iodb] def appendFileAlias(oldFileNum: Long, oldFileOffset: Long, newFileNumber: Long, newFileOffset: Long): Unit = {
+    appendLock.lock()
+    try {
+      val b = ByteBuffer.allocate(4 + 1 + 4 * 8 + 8)
+      b.putInt(b.array().length)
+      b.put(LogStore.headAlias)
+      b.putLong(oldFileNum)
+      b.putLong(oldFileOffset)
+      b.putLong(newFileNumber)
+      b.putLong(newFileOffset)
+
+      val checksum = Utils.checksum(b.array(), 0, b.array().length - 8)
+      b.putLong(checksum)
+
+      append(b.array())
+      offsetAliases.put(new FilePos(fileNum = oldFileNum, offset = newFileOffset), new FilePos(fileNum = newFileNumber, offset = newFileOffset))
     } finally {
       appendLock.unlock()
     }
@@ -211,7 +275,6 @@ class LogStore(
     //append to end of the file
     appendLock.lock()
     try {
-
       if (!fileJournal.exists()) {
         //open file
         fout = new FileOutputStream(fileJournal)
@@ -229,24 +292,31 @@ class LogStore(
     }
   }
 
+  def readPrevFilePos(filePos: FilePos): FilePos = {
+    val fileHandle = fileHandles.get(filePos.fileNum)
+
+    val prevFilePos = new FilePos(
+      fileNum = fileAccess.readLong(fileHandle, filePos.offset + LogStore.updatePrevFileNum),
+      offset = fileAccess.readLong(fileHandle, filePos.offset + LogStore.updatePrevFileOffset))
+
+    return offsetAliases.getOrDefault(prevFilePos, prevFilePos)
+  }
+
 
   def get(key: K): Option[V] = {
-    val filePos = validPos.get
-    var fileNum: FileNum = filePos.fileNum
-    var fileOffset: FileOffset = filePos.offset
+    var filePos = validPos.get
 
-    while (fileOffset >= 0) {
-      val fileHandle = fileHandles.get(fileNum)
+    while (filePos != null && filePos.offset >= 0) {
+      val fileHandle = fileHandles.get(filePos.fileNum)
       if (fileHandle == null)
         throw new DataCorruptionException("File Number not found")
       //binary search
-      val result = fileAccess.getValue(fileHandle, key, keySize, fileOffset)
+      val result = fileAccess.getValue(fileHandle, key, keySize, filePos.offset)
       if (result != null)
         return result
 
       //move to previous update
-      fileNum = fileAccess.readLong(fileHandle, fileOffset + 5 + 8)
-      fileOffset = fileAccess.readLong(fileHandle, fileOffset + 5)
+      filePos = readPrevFilePos(filePos)
     }
     return None
   }
@@ -268,34 +338,29 @@ class LogStore(
 
   protected[iodb] def loadUpdateOffsets(): Iterable[FilePos] = {
     // load offsets of all log entries
-    val filePos = validPos.get
-    var fileNum: FileNum = filePos.fileNum
-    var fileOffset: FileOffset = filePos.offset
-
+    var filePos = validPos.get
     val offsets = mutable.ArrayBuffer[FilePos]()
 
-    while (fileOffset >= 0) {
-      val fileHandle = fileHandles.get(fileNum)
-      offsets += FilePos(fileNum, fileOffset)
+    while (filePos.offset >= 0) {
+      offsets += filePos
       //move to previous update
-      fileNum = fileAccess.readLong(fileHandle, fileOffset + 5 + 8)
-      fileOffset = fileAccess.readLong(fileHandle, fileOffset + 5)
+      filePos = readPrevFilePos(filePos)
     }
     return offsets
   }
 
   override def rollbackVersions(): Iterable[VersionID] = {
     loadUpdateOffsets()
-      .map(pos => loadVersionID(pos.fileNum, pos.offset))
+      .map(loadVersionID(_))
       .toBuffer.reverse
   }
 
 
-  def loadVersionID(fileNum: FileNum, fileOffset: FileOffset): VersionID = {
-    val fileHandle = fileHandles.get(fileNum)
-    val keyCount = fileAccess.readInt(fileHandle, fileOffset + LogStore.updateKeyCountOffset)
-    val versionIDSize = fileAccess.readInt(fileHandle, fileOffset + LogStore.updateVersionIDSize)
-    val versionIDOffset = fileOffset + LSMStore.updateHeaderSize + (keySize + 4 + 4) * keyCount
+  def loadVersionID(filePos: FilePos): VersionID = {
+    val fileHandle = fileHandles.get(filePos.fileNum)
+    val keyCount = fileAccess.readInt(fileHandle, filePos.offset + LogStore.updateKeyCountOffset)
+    val versionIDSize = fileAccess.readInt(fileHandle, filePos.offset + LogStore.updateVersionIDSize)
+    val versionIDOffset = filePos.offset + LSMStore.updateHeaderSize + (keySize + 4 + 4) * keyCount
     val ret = new VersionID(versionIDSize)
     fileAccess.readData(fileHandle, versionIDOffset, ret.data)
     return ret
@@ -345,7 +410,7 @@ class LogStore(
     val keyVals = keyValues(offsets, dropTombstones = true).toBuffer //TODO serialize keys lazily, without loading entire chunk to memory
     //load versionID for newest offset
     val newestPos = offsets.head
-    val versionID = loadVersionID(newestPos.fileNum, newestPos.offset)
+    val versionID = loadVersionID(newestPos)
 
     val data = serializeUpdate(versionID, keyVals,
       isMerged = true,
@@ -366,7 +431,8 @@ class LogStore(
     }
   }
 
-  override def clean(count: Int): Unit = {}
+  override def clean(count: Int): Unit = {
+  }
 
   override def cleanStop(): Unit = {}
 
@@ -374,7 +440,7 @@ class LogStore(
     val lastPos = validPos.get()
     if (lastPos == null || lastPos.offset < 0)
       return None
-    return Some(loadVersionID(lastPos.fileNum, lastPos.offset))
+    return Some(loadVersionID(lastPos))
   }
 
   override def rollback(versionID: VersionID): Unit = {
@@ -382,7 +448,7 @@ class LogStore(
     try {
       //find offset for version ID
       for (pos <- loadUpdateOffsets()) {
-        val versionID2 = loadVersionID(pos.fileNum, pos.offset)
+        val versionID2 = loadVersionID(pos)
         if (versionID2 == versionID) {
           //insert new link to log
           val serialized = serializeUpdate(
@@ -397,7 +463,7 @@ class LogStore(
           append(serialized)
           //and update pointers
           validPos.set(eof)
-          eof = new FilePos(eof.fileNum, eof.offset + serialized.length)
+          eof = new FilePos(fileNum = eof.fileNum, offset = eof.offset + serialized.length)
 
           //update offsets
           validPos.set(pos)
