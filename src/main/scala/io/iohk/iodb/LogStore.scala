@@ -53,7 +53,6 @@ class LogStore(
     */
   protected[iodb] var eof = new FilePos(fileNum = 0L, offset = 0L)
 
-  protected var fileJournal = new File(dir, filePrefix + "0" + fileSuffix)
   protected var fout: FileOutputStream = null
 
   protected[iodb] val fileHandles = new ConcurrentSkipListMap[Long, Any]()
@@ -117,6 +116,8 @@ class LogStore(
       //FIXME howto handle data corruption? still allow store to be opened, if there is corruption
     }
   }
+
+  protected def fileNumToFile(fileNum: Long) = new File(dir, filePrefix + fileNum + fileSuffix)
 
   protected def finalizeLogEntry(out: ByteArrayOutputStream, out2: DataOutputStream): Array[Byte] = {
     //write placeholder for checksum
@@ -240,7 +241,7 @@ class LogStore(
       }
       val offsets = loadUpdateOffsets()
       val newFileNumber = fileHandles.lastKey() + 1
-      fileJournal = new File(dir, filePrefix + newFileNumber + fileSuffix)
+      val fileJournal = fileNumToFile(newFileNumber)
       fout = new FileOutputStream(fileJournal)
       val fileHandle = fileAccess.open(fileJournal.getPath)
       fileHandles.put(newFileNumber, fileHandle)
@@ -275,12 +276,15 @@ class LogStore(
     //append to end of the file
     appendLock.lock()
     try {
-      if (!fileJournal.exists()) {
+      if (fout == null && fileHandles.isEmpty) {
+        println("handles " + fileHandles.keySet())
+        val fileNum = 0L
+        val fileJournal = fileNumToFile(fileNum)
         //open file
         fout = new FileOutputStream(fileJournal)
         //add to file handles
         val fileHandle = fileAccess.open(fileJournal.getPath)
-        fileHandles.put(0L, fileHandle)
+        fileHandles.put(fileNum, fileHandle)
 
       }
       fout.write(data)
@@ -294,6 +298,8 @@ class LogStore(
 
   def readPrevFilePos(filePos: FilePos): FilePos = {
     val fileHandle = fileHandles.get(filePos.fileNum)
+    if (fileHandle == null)
+      throw new DataCorruptionException("File not found:  " + filePos.fileNum)
 
     val prevFilePos = new FilePos(
       fileNum = fileAccess.readLong(fileHandle, filePos.offset + LogStore.updatePrevFileNum),
@@ -404,21 +410,34 @@ class LogStore(
 
 
   def compact(): Unit = {
-    val offsets = loadUpdateOffsets()
-    if (offsets.size <= 1)
-      return
-    val keyVals = keyValues(offsets, dropTombstones = true).toBuffer //TODO serialize keys lazily, without loading entire chunk to memory
-    //load versionID for newest offset
-    val newestPos = offsets.head
-    val versionID = loadVersionID(newestPos)
+    appendLock.lock()
+    try {
+      val offsets = loadUpdateOffsets()
+      if (offsets.size <= 1)
+        return
 
-    val data = serializeUpdate(versionID, keyVals,
-      isMerged = true,
-      //TODO how to handle link to previous number?
-      prevFileNumber = newestPos.fileNum,
-      prevFileOffset = newestPos.offset
-    )
-    append(data)
+      val keyVals = keyValues(offsets, dropTombstones = true).toBuffer //TODO serialize keys lazily, without loading entire chunk to memory
+      //load versionID for newest offset
+      val newestPos = offsets.head
+      val versionID = loadVersionID(newestPos)
+
+      startNewFile()
+      val data = serializeUpdate(versionID, keyVals,
+        isMerged = true,
+        //TODO how to handle link to previous number?
+        prevFileNumber = 0,
+        prevFileOffset = 0
+      )
+      startNewFile()
+      append(data)
+      //and update pointers
+      validPos.set(eof)
+      eof = new FilePos(fileNum = eof.fileNum, offset = eof.offset + data.length)
+
+    } finally {
+      appendLock.unlock()
+    }
+
   }
 
   override def getAll(consumer: (K, V) => Unit): Unit = {
@@ -432,6 +451,22 @@ class LogStore(
   }
 
   override def clean(count: Int): Unit = {
+    compact()
+    appendLock.lock()
+    try {
+      val offsets = loadUpdateOffsets()
+      //files which are used in last
+      //remove all files which are lower than lowest used file N versions
+      val preserve = offsets.take(count).map(_.fileNum).toSet
+
+      for (fileNum <- fileHandles.keySet().asScala.filterNot(preserve.contains(_))) {
+        val handle = fileHandles.remove(fileNum)
+        fileAccess.close(handle)
+        fileNumToFile(fileNum).delete()
+      }
+    } finally {
+      appendLock.unlock()
+    }
   }
 
   override def cleanStop(): Unit = {}
