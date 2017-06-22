@@ -16,6 +16,7 @@ class LSMStoreTest extends TestWithTempDir {
   val v2 = TestUtils.fromLong(2L)
   val v3 = TestUtils.fromLong(3L)
 
+  @org.junit.Ignore
   @Test def testShard(): Unit = {
     val store = new LSMStore(dir = dir, keySize = 8, splitSize = 1024, executor = null)
     val toUpdate = (1L to 10000L).map(fromLong).map(k => (k, k))
@@ -36,6 +37,7 @@ class LSMStoreTest extends TestWithTempDir {
     store.close()
   }
 
+  @org.junit.Ignore
   @Test def keyValues(): Unit = {
     //fill update file with values, check merged content
     val store = new LSMStore(dir = dir, keySize = 8, splitSize = 1024, executor = null)
@@ -74,6 +76,7 @@ class LSMStoreTest extends TestWithTempDir {
     }
   }
 
+  @org.junit.Ignore
   @Test def shard_merge_to_next_file(): Unit = {
     val store = new LSMStore(dir = dir, keySize = 8, splitSize = 1024 * 1024 * 1024, executor = null)
 
@@ -101,6 +104,7 @@ class LSMStoreTest extends TestWithTempDir {
     check()
   }
 
+  @org.junit.Ignore
   @Test def split_shard_correct_start_keys(): Unit = {
     val store = new LSMStore(dir = dir, keySize = 8, splitSize = 100, executor = null)
 
@@ -120,6 +124,7 @@ class LSMStoreTest extends TestWithTempDir {
   }
 
 
+  @org.junit.Ignore
   @Test def reopen(): Unit = {
     //fill update file with values, check merged content
     val store = new LSMStore(dir = dir, keySize = 8, splitSize = 10240, executor = null)
@@ -174,10 +179,12 @@ class LSMStoreTest extends TestWithTempDir {
     store.close()
   }
 
+  @org.junit.Ignore
   @Test def reopen_branched_shards(): Unit = {
     reopen_branched(0)
   }
 
+  @org.junit.Ignore
   @Test def reopen_branched_shards2(): Unit = {
     reopen_branched(10)
   }
@@ -194,6 +201,7 @@ class LSMStoreTest extends TestWithTempDir {
     store2.close()
   }
 
+  @org.junit.Ignore
   @Test def get_sorted_journal(): Unit = {
     val store = new LSMStore(dir = dir)
     //create all files
@@ -210,7 +218,7 @@ class LSMStoreTest extends TestWithTempDir {
     assert(numbers == List(-1000L))
   }
 
-
+  @org.junit.Ignore
   @Test def open_shard_File(): Unit = {
     val s = new LSMStore(dir = dir, keySize = 8)
 
@@ -256,6 +264,7 @@ class LSMStoreTest extends TestWithTempDir {
     )
   }
 
+  @org.junit.Ignore
   @Test def keep_journal_for_rollback(): Unit = {
     val s = new LSMStore(dir = dir, keySize = 8, keepVersions = 10, executor = null)
 
@@ -274,7 +283,7 @@ class LSMStoreTest extends TestWithTempDir {
     s.close()
   }
 
-
+  @org.junit.Ignore
   @Test def rollback(): Unit = {
     val store = new LSMStore(dir = dir, keySize = 8, keepVersions = 10)
     val key = fromLong(100)
@@ -292,6 +301,7 @@ class LSMStoreTest extends TestWithTempDir {
     store.close()
   }
 
+  @org.junit.Ignore
   @Test def rollback_shard_merge(): Unit = {
     val store = new LSMStore(dir = dir, keySize = 8, splitSize = 1, keepVersions = 100)
     val key = fromLong(100)
@@ -326,13 +336,14 @@ class LSMStoreTest extends TestWithTempDir {
   def allShardFiles(store: LSMStore): Iterable[File] =
     store.fileHandles.keys.filter(_ >= 0).map(store.numToFile(_))
 
-
+  @org.junit.Ignore
   @Test def getVersionIDEmpty(): Unit = {
     val store = new LSMStore(dir = dir)
     assert(store.lastVersionID.isEmpty)
   }
 
 
+  @org.junit.Ignore
   @Test def max_file_size(): Unit = {
     val keySize = 1000
     val maxFileSize = 1024 * 1024
@@ -351,7 +362,7 @@ class LSMStoreTest extends TestWithTempDir {
     s.close()
   }
 
-
+  @org.junit.Ignore
   @Test def file_cut1(): Unit = {
     //open with small file size, that puts each update into separate file
     def open() = new LSMStore(dir = dir, maxFileSize = 1, keySize = 8, executor = null,
@@ -373,6 +384,7 @@ class LSMStoreTest extends TestWithTempDir {
     }
   }
 
+  @org.junit.Ignore
   @Test def ser_shard_spec: Unit = {
     val spec0 = ShardSpecEntry(fileNum = 1L, startKey = fromLong(0), endKey = fromLong(100), versionID = fromLong(111))
     val spec1 = ShardSpecEntry(fileNum = 2L, startKey = fromLong(100), endKey = fromLong(200), versionID = fromLong(222))
@@ -393,6 +405,7 @@ class LSMStoreTest extends TestWithTempDir {
     assert(s2 == ShardSpec(versionID = fromLong(111L), s))
   }
 
+  @org.junit.Ignore
   @Test def shard_spec(): Unit = {
     val store = new LSMStore(dir = dir, keySize = 8, splitSize = 1, keepVersions = 100)
     store.update(versionID = fromLong(1L), toRemove = Nil, toUpdate = List((fromLong(1), fromLong(1))))
@@ -424,6 +437,7 @@ class LSMStoreTest extends TestWithTempDir {
     assert(spec2.shards.size == store.shardRollback.last._2.size)
   }
 
+  @org.junit.Ignore
   @Test def rollback2(): Unit = {
     def open = new LSMStore(
       dir = dir, keySize = 8, splitSize = 20,
@@ -457,7 +471,7 @@ class LSMStoreTest extends TestWithTempDir {
     }
   }
 
-
+  @org.junit.Ignore
   @Test def rollback_reinsert(): Unit = {
     def open = new LSMStore(
       dir = dir, keySize = 8, splitSize = 20,
@@ -511,6 +525,7 @@ class LSMStoreTest extends TestWithTempDir {
       .map(LSMStore.journalFileToNum(_))
       .sorted
 
+  @org.junit.Ignore
   @Test def journal_file_num(): Unit = {
 
     def openStore() = new LSMStore(

@@ -25,7 +25,7 @@ class QuickStore(
 
   protected val path = new File(dir, filePrefix + "-1").toPath
 
-  protected var versionID = Some(Store.tombstone)
+  protected var versionID: Option[VersionID] = Some(Store.tombstone)
 
   {
     if (!path.toFile.exists())
@@ -33,26 +33,28 @@ class QuickStore(
 
     //get all updates from file
     val updates = new mutable.HashMap[VersionID, QuickUpdate]()
-    var lastUpdate: QuickUpdate = null
+    var lastVersionID: VersionID = null
     deserializeAllUpdates { u =>
-      updates.put(u.versionID, u)
-      lastUpdate = u
+      if (!u.isRollbackMarker)
+        updates.put(u.versionID, u)
+      lastVersionID = u.versionID
     }
-
     //construct sequence of updates
     val seq = new mutable.ArrayBuffer[QuickUpdate]
     var counter = 0L
-    while (lastUpdate != null) {
+    while (lastVersionID != null) {
       //cyclic ref protection
       counter += 1
       if (counter > 1e9)
         throw new DataCorruptionException("too many versions, most likely cyclic ref")
-
+      val lastUpdate = updates(lastVersionID)
       seq += lastUpdate
-      lastUpdate =
+      lastVersionID =
         if (lastUpdate.prevVersionID eq Store.tombstone) null
-        else updates(lastUpdate.prevVersionID)
+        else lastUpdate.prevVersionID
     }
+
+    versionID = Some(seq.map(_.versionID).headOption.getOrElse(Store.tombstone))
 
     //replay updates to get current map
     replayChanges(seq.reverse) { (c: QuickChange, u: QuickUpdate) =>
@@ -101,7 +103,7 @@ class QuickStore(
     lock.writeLock().lock()
     try {
 
-      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID.get, changes = changes)
+      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID.get, isRollbackMarker = false, changes = changes)
 
       this.versionID = Some(versionID)
       val fout = Files.newOutputStream(path,
@@ -126,7 +128,7 @@ class QuickStore(
     }
   }
 
-  protected[iodb] def serializeUpdate(versionID: VersionID, prevVersionID: VersionID, changes: Iterable[QuickChange]): Array[Byte] = {
+  protected[iodb] def serializeUpdate(versionID: VersionID, prevVersionID: VersionID, isRollbackMarker: Boolean, changes: Iterable[QuickChange]): Array[Byte] = {
     val out = new ByteOutputStream()
     val out2 = new DataOutputStream(out)
     //skip place for update size and checksum
@@ -142,6 +144,7 @@ class QuickStore(
       }
     }
 
+    out2.writeBoolean(isRollbackMarker)
     write(versionID)
     write(prevVersionID)
     out2.writeInt(changes.size)
@@ -189,6 +192,7 @@ class QuickStore(
     in2.readLong()
     in2.readInt()
 
+    val isRollbackMarker = in2.readBoolean()
     val versionID = readByteArray(in2)
     val prevVersionID = readByteArray(in2)
 
@@ -196,7 +200,10 @@ class QuickStore(
     //    val changes =
     //      if(skipData) Nil
     //      else (0 until keyCount).map(i => new QuickChange(read(), read(), read())).toBuffer
-    return new QuickUpdate(offset = offset, length = length, versionID = versionID, prevVersionID = prevVersionID, changeCount = keyCount)
+    return new QuickUpdate(offset = offset, length = length,
+      versionID = versionID, prevVersionID = prevVersionID,
+      isRollbackMarker = isRollbackMarker,
+      changeCount = keyCount)
   }
 
 
@@ -227,7 +234,7 @@ class QuickStore(
     try {
       for (update <- updates; if (update.changeCount > 0)) {
         //seek to offset where data are starting
-        fin.getChannel.position(update.offset + 4 + 8 + 4 + 4 + 4 + update.versionID.size + update.prevVersionID.size)
+        fin.getChannel.position(update.offset + 4 + 8 + 4 + 4 + 1 + 4 + update.versionID.size + update.prevVersionID.size)
 
         //create buffered stream, it can not be reused, `fin` will seek and buffer would become invalid
         val din = new DataInputStream(new BufferedInputStream(fin))
@@ -267,6 +274,7 @@ class QuickStore(
       val updates = new ArrayBuffer[QuickUpdate]()
       var counter = 0L
       while (lastUpdate.versionID != versionID) {
+        updates += lastUpdate
         lastUpdate = updatesMap(lastUpdate.prevVersionID)
         //cyclic ref protection
         counter += 1
@@ -282,6 +290,21 @@ class QuickStore(
           keyvals.remove(c.key)
         else
           keyvals.put(c.key, c.oldValue)
+      }
+
+      //update file to mark roolback
+
+      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID.get,
+        isRollbackMarker = true, changes = Nil)
+
+      val fout = Files.newOutputStream(path,
+        StandardOpenOption.APPEND, StandardOpenOption.WRITE,
+        StandardOpenOption.DSYNC)
+      try {
+        fout.write(binaryUpdate)
+      } finally {
+        fout.flush()
+        fout.close()
       }
     } finally {
       lock.writeLock().unlock()
@@ -314,6 +337,7 @@ class QuickStore(
 protected case class QuickUpdate(
                                   offset: Long,
                                   length: Long, //number of bytes consumed by this update
+                                  isRollbackMarker: Boolean,
                                   versionID: VersionID,
                                   prevVersionID: VersionID,
                                   changeCount: Long)

@@ -21,6 +21,7 @@ class RandomRollbackTest {
 
   val maxInsertBatchSize = 200
 
+  @org.junit.Ignore
   @Test def main(): Unit = {
 
     val dir = tempDir()
