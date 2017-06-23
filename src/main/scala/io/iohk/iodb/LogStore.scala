@@ -228,9 +228,14 @@ class LogStore(
       //and update pointers
       validPos.set(eof)
       eof = new FilePos(fileNum = eof.fileNum, offset = eof.offset + serialized.length)
+
+      if (validPos.get().offset != 0 && eof.offset > 1e8) //trigger compaction if too big
+        compact()
     } finally {
       appendLock.unlock()
     }
+
+
   }
 
   protected[iodb] def startNewFile() {
