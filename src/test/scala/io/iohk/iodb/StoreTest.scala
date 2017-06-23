@@ -165,10 +165,10 @@ abstract class StoreTest extends TestWithTempDir {
       return
 
     val store = open(keySize = 8)
-    val threadCount = 4
+    val threadCount = 8
     val versionID = new AtomicLong(0)
     val key = new AtomicLong(0)
-    val count: Long = 1e5.toLong
+    val count: Long = 1e6.toLong
 
     val exec = Executors.newCachedThreadPool()
     for (i <- 0 until threadCount) {
@@ -187,9 +187,13 @@ abstract class StoreTest extends TestWithTempDir {
     waitForFinish(exec)
 
     //ensure all keys are present
-    for (key <- 1L to count) {
-      assert(Some(fromLong(key)) == store.get(fromLong(key)))
-    }
+    val keys = (1L to count).map(fromLong(_)).toSet
+    val keys2 = store.getAll().map(_._1).toSet
+    assert(keys == keys2)
+
+    val versions = store.rollbackVersions().toSet
+    assert(keys == versions)
+
     store.close()
   }
 }
