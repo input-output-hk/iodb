@@ -2,6 +2,8 @@ package io.iohk.iodb
 
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.concurrent.{ExecutorService, TimeUnit}
+import java.util.logging.Level
 
 import scala.util.Random
 
@@ -84,5 +86,22 @@ object TestUtils {
     val b = ByteBuffer.allocate(8)
     b.putLong(0, id)
     ByteArrayWrapper(b.array())
+  }
+
+
+  def runnable(f: => Unit): Runnable =
+    return () => {
+      try {
+        f
+      } catch {
+        case e: Throwable => {
+          Utils.LOG.log(Level.SEVERE, "Background task failed", e)
+        }
+      }
+    }
+
+  def waitForFinish(exec: ExecutorService): Unit = {
+    exec.shutdown()
+    exec.awaitTermination(400, TimeUnit.DAYS)
   }
 }

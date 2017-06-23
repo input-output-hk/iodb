@@ -1,5 +1,8 @@
 package io.iohk.iodb
 
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
+
 import io.iohk.iodb.Store.{K, V}
 import io.iohk.iodb.TestUtils._
 import org.junit.Assert.assertEquals
@@ -8,18 +11,18 @@ import org.junit.Test
 import scala.collection.mutable
 import scala.util.Random
 
-abstract class StoreTest extends TestWithTempDir{
+abstract class StoreTest extends TestWithTempDir {
 
   def open(keySize: Int = 32): Store
 
 
   def testReopen(): Unit = {
     var store = open(keySize = 8)
-    store.update(fromLong(1L), toUpdate = (1L to 100L).map(i=>(fromLong(i), fromLong(i))), toRemove=Nil)
+    store.update(fromLong(1L), toUpdate = (1L to 100L).map(i => (fromLong(i), fromLong(i))), toRemove = Nil)
     store.update(fromLong(2L), toUpdate = Nil, toRemove = (90L to 100L).map(fromLong))
 
     def check(): Unit = {
-      (1L to 89L).foreach(i=> assert(Some(fromLong(i))== store.get(fromLong(i))))
+      (1L to 89L).foreach(i => assert(Some(fromLong(i)) == store.get(fromLong(i))))
     }
 
     check()
@@ -157,8 +160,39 @@ abstract class StoreTest extends TestWithTempDir{
     store.close()
   }
 
-}
+  @Test def concurrent_updates(): Unit = {
+    if (TestUtils.longTest() <= 0)
+      return
 
+    val store = open(keySize = 8)
+    val threadCount = 4
+    val versionID = new AtomicLong(0)
+    val key = new AtomicLong(0)
+    val count: Long = 1e5.toLong
+
+    val exec = Executors.newCachedThreadPool()
+    for (i <- 0 until threadCount) {
+      exec.execute(runnable {
+        var newVersion = versionID.incrementAndGet()
+        while (newVersion <= count) {
+          val newKey = key.incrementAndGet()
+          store.update(fromLong(newVersion), toUpdate = List((fromLong(newKey), fromLong(newKey))), toRemove = Nil)
+
+          newVersion = versionID.incrementAndGet()
+        }
+      })
+    }
+
+    //wait for tasks to finish
+    waitForFinish(exec)
+
+    //ensure all keys are present
+    for (key <- 1L to count) {
+      assert(Some(fromLong(key)) == store.get(fromLong(key)))
+    }
+    store.close()
+  }
+}
 
 class QuickStoreRefTest extends StoreTest {
   override def open(keySize: Int): Store = new QuickStore(dir)
