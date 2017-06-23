@@ -1,6 +1,8 @@
 package io.iohk.iodb.prop
 
-import io.iohk.iodb.{ByteArrayWrapper, LSMStore, TestUtils}
+import java.io.File
+
+import io.iohk.iodb._
 import org.junit.Test
 import org.scalacheck.Test._
 import org.scalacheck.commands.Commands
@@ -45,18 +47,18 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
   // type State = (Version, AppendsIndex, RemovalsIndex, Appended, Removed)
   case class State(version: Version, appendsIndex: AppendsIndex, removalsIndex: RemovalsIndex, appended: Appended, removed: Removed)
 
-
-  type Sut = LSMStore
+  var folder: File = null
+  type Sut = Store
 
   val initialState: State = State(0, Map(0 -> 1), Map(), IndexedSeq(ByteArrayWrapper(Array.fill(32)(0: Byte)) -> ByteArrayWrapper.fromLong(5)), IndexedSeq())
 
   override def canCreateNewSut(newState: State,
                                initSuts: Traversable[State],
-                               runningSuts: Traversable[LSMStore]): Boolean = true
+                               runningSuts: Traversable[Store]): Boolean = true
 
-  override def newSut(state: State): LSMStore = {
-    val folder = TestUtils.tempDir()
-    val s = new LSMStore(folder, maxJournalEntryCount = maxJournalEntryCount, keepVersions = keepVersion /*, executor = null*/)
+  override def newSut(state: State): Store = {
+    folder = TestUtils.tempDir()
+    val s = new LogStore(folder, keepVersions = keepVersion /*, executor = null*/)
     s.update(state.version, state.removed, state.appended)
     s
   }
@@ -115,9 +117,9 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
     Gen.frequency(gfrr: _*)
   }
 
-  override def destroySut(sut: LSMStore): Unit = {
+  override def destroySut(sut: Store): Unit = {
     sut.close()
-    TestUtils.deleteRecur(sut.dir)
+    TestUtils.deleteRecur(folder)
   }
 
   override def genInitialState: Gen[State] = Gen.const(initialState)
@@ -125,7 +127,7 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
   case class AppendForward(version: Version, toAppend: Seq[(ByteArrayWrapper, ByteArrayWrapper)], toRemove: Seq[ByteArrayWrapper]) extends Command {
     type Result = Try[Unit]
 
-    override def run(sut: LSMStore): Try[Unit] = {
+    override def run(sut: Store): Try[Unit] = {
       //  println("appending: " + toAppend.size + " removing: " + toRemove.size)
       Try(sut.update(ByteArrayWrapper.fromLong(version), toRemove, toAppend))
     }
@@ -158,7 +160,7 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
   class Rollback(version: Version) extends Command {
     type Result = Try[Unit]
 
-    override def run(sut: LSMStore): Try[Unit] = {
+    override def run(sut: Store): Try[Unit] = {
       Try(sut.rollback(ByteArrayWrapper.fromLong(version)))
     }
 
@@ -180,7 +182,7 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
   class GetExisting(key: ByteArrayWrapper) extends Command {
     override type Result = Option[ByteArrayWrapper]
 
-    override def run(sut: LSMStore): Option[ByteArrayWrapper] = sut.get(key)
+    override def run(sut: Store): Option[ByteArrayWrapper] = sut.get(key)
 
     override def nextState(state: State): State = state
 
@@ -197,7 +199,7 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
   class GetRemoved(key: ByteArrayWrapper) extends Command {
     override type Result = Option[ByteArrayWrapper]
 
-    override def run(sut: LSMStore): Option[ByteArrayWrapper] = sut.get(key)
+    override def run(sut: Store): Option[ByteArrayWrapper] = sut.get(key)
 
     override def nextState(state: State): State = state
 
@@ -211,9 +213,10 @@ class LSMCommands(val maxJournalEntryCount: Int, val keepVersion: Int) extends C
   object CleanUp extends UnitCommand {
     override def postCondition(state: State, success: Boolean): Prop = success
 
-    override def run(sut: LSMStore): Unit = {
-      sut.taskCleanup()
-      sut.verify()
+    override def run(sut: Store): Unit = {
+      sut.clean(1000)
+      //      sut.taskCleanup()
+      //      sut.verify()
     }
 
     override def nextState(state: State): State = state

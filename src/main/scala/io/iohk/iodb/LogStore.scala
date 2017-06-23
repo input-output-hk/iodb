@@ -35,6 +35,7 @@ case class FilePos(fileNum: FileNum, offset: FileOffset)
 class LogStore(
                 val dir: File,
                 val keySize: Int = 32,
+                val keepVersions: Int = 0,
                 val fileAccess: FileAccess = FileAccess.SAFE,
                 val filePrefix: String = "store",
                 val fileSuffix: String = ".journal"
@@ -277,7 +278,6 @@ class LogStore(
     appendLock.lock()
     try {
       if (fout == null && fileHandles.isEmpty) {
-        println("handles " + fileHandles.keySet())
         val fileNum = 0L
         val fileJournal = fileNumToFile(fileNum)
         //open file
