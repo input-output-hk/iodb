@@ -1,4 +1,4 @@
-lIODB Specification
+IODB Specification
 ======================
 
 Features
