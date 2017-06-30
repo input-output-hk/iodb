@@ -76,6 +76,12 @@ sealed abstract class FileAccess {
     readData(file, offset, b.array())
     return b.getInt(0)
   }
+
+  def readByte(file: Any, offset: Long): Byte = {
+    val b = ByteBuffer.allocate(1)
+    readData(file, offset, b.array())
+    return b.get(0)
+  }
 }
 
 object FileAccess {

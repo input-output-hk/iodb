@@ -27,7 +27,9 @@ object LogStore {
   val headMerge = 4.toByte
 }
 
-case class FilePos(fileNum: FileNum, offset: FileOffset)
+case class FilePos(fileNum: FileNum, offset: FileOffset) {
+  assert(fileNum > 0)
+}
 
 /**
   * Implementation of Store over series of Log Files
@@ -48,11 +50,11 @@ class LogStore(
     *
     * Is read without lock, is updated under `appendLock` after file sync
     */
-  protected[iodb] val validPos = new AtomicReference(new FilePos(fileNum = -1L, offset = -1L))
+  protected[iodb] val validPos = new AtomicReference(new FilePos(fileNum = 1L, offset = -1L))
 
   /** End of File. New records will be appended here
     */
-  protected[iodb] var eof = new FilePos(fileNum = 0L, offset = 0L)
+  protected[iodb] var eof = new FilePos(fileNum = 1L, offset = 0L)
 
   protected var fout: FileOutputStream = null
 
@@ -92,14 +94,8 @@ class LogStore(
           validPos.set(new FilePos(fileNum = fileNum, offset = offset))
 
         if (head == LogStore.headAlias) {
-          val oldPos = new FilePos(
-            fileNum = fileAccess.readLong(fileHandle, offset + LogStore.updatePrevFileNum),
-            offset = fileAccess.readLong(fileHandle, offset + LogStore.updatePrevFileOffset)
-          )
-          val newPos = new FilePos(
-            fileNum = fileAccess.readLong(fileHandle, offset + LogStore.updatePrevFileOffset + 8),
-            offset = fileAccess.readLong(fileHandle, offset + LogStore.updatePrevFileOffset + 8 + 8)
-          )
+          val oldPos = loadFilePos(fileHandle, offset + LogStore.updatePrevFileNum)
+          val newPos = loadFilePos(fileHandle, offset + LogStore.updatePrevFileOffset + 8)
           offsetAliases.put(oldPos, newPos)
         }
         offset += size
@@ -118,6 +114,14 @@ class LogStore(
     }
   }
 
+
+  protected def loadFilePos(fileHandle: Any, offset: Long): FilePos = {
+    val fileNum = fileAccess.readLong(fileHandle, offset)
+    assert(fileNum > 0)
+    val fileOffset = fileAccess.readLong(fileHandle, offset + 8)
+    return new FilePos(fileNum = Math.abs(fileNum), offset = fileOffset)
+
+  }
   protected def fileNumToFile(fileNum: Long) = new File(dir, filePrefix + fileNum + fileSuffix)
 
   protected def finalizeLogEntry(out: ByteArrayOutputStream, out2: DataOutputStream): Array[Byte] = {
@@ -143,7 +147,7 @@ class LogStore(
                                        prevFileOffset: Long
 
                                      ): Array[Byte] = {
-
+    assert(prevFileNumber > 0)
     val out = new ByteArrayOutputStream()
     val out2 = new DataOutputStream(out)
 
@@ -151,15 +155,13 @@ class LogStore(
     out2.writeInt(0)
 
     //update type
-    out2.writeByte(LogStore.headUpdate)
-
+    out2.writeByte(if (isMerged) LogStore.headMerge else LogStore.headUpdate)
     out2.writeLong(prevFileNumber)
     out2.writeLong(prevFileOffset)
 
     out2.writeInt(data.size)
     out2.writeInt(keySize)
     out2.writeInt(versionID.size)
-    out2.writeBoolean(isMerged)
 
     //write keys
     data.map(_._1.data).foreach(out2.write(_))
@@ -272,7 +274,9 @@ class LogStore(
       b.putLong(checksum)
 
       append(b.array())
-      offsetAliases.put(new FilePos(fileNum = oldFileNum, offset = newFileOffset), new FilePos(fileNum = newFileNumber, offset = newFileOffset))
+      offsetAliases.put(
+        new FilePos(fileNum = oldFileNum, offset = newFileOffset),
+        new FilePos(fileNum = newFileNumber, offset = newFileOffset))
     } finally {
       appendLock.unlock()
     }
@@ -283,7 +287,7 @@ class LogStore(
     appendLock.lock()
     try {
       if (fout == null && fileHandles.isEmpty) {
-        val fileNum = 0L
+        val fileNum = 1L
         val fileJournal = fileNumToFile(fileNum)
         //open file
         fout = new FileOutputStream(fileJournal)
@@ -306,10 +310,7 @@ class LogStore(
     if (fileHandle == null)
       throw new DataCorruptionException("File not found:  " + filePos.fileNum)
 
-    val prevFilePos = new FilePos(
-      fileNum = fileAccess.readLong(fileHandle, filePos.offset + LogStore.updatePrevFileNum),
-      offset = fileAccess.readLong(fileHandle, filePos.offset + LogStore.updatePrevFileOffset))
-
+    val prevFilePos = loadFilePos(fileHandle, filePos.offset + LogStore.updatePrevFileNum)
     return offsetAliases.getOrDefault(prevFilePos, prevFilePos)
   }
 
@@ -321,10 +322,15 @@ class LogStore(
       val fileHandle = fileHandles.get(filePos.fileNum)
       if (fileHandle == null)
         throw new DataCorruptionException("File Number not found")
+      val header = fileAccess.readByte(fileHandle, filePos.offset + 4)
+
       //binary search
       val result = fileAccess.getValue(fileHandle, key, keySize, filePos.offset)
       if (result != null)
         return result
+      // no need to continue traversal
+      if (header == LogStore.headMerge)
+        return None
 
       //move to previous update
       filePos = readPrevFilePos(filePos)
@@ -429,9 +435,8 @@ class LogStore(
       startNewFile()
       val data = serializeUpdate(versionID, keyVals,
         isMerged = true,
-        //TODO how to handle link to previous number?
-        prevFileNumber = 0,
-        prevFileOffset = 0
+        prevFileNumber = newestPos.fileNum,
+        prevFileOffset = newestPos.offset
       )
       startNewFile()
       append(data)

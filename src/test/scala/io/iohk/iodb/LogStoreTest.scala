@@ -156,4 +156,36 @@ class LogStoreTest extends StoreTest {
     check()
   }
 
+
+  @Test def get_stops_at_merge(): Unit = {
+    var store = new LogStore(dir = dir, keySize = 8)
+
+    def update(i: Long) = store.update(fromLong(i), toUpdate = makeKeyVal(i, i), toRemove = Nil)
+
+    update(1L)
+    update(2L)
+    //insert compacted entry
+    val eof = store.eof
+    val pos = store.validPos.get()
+    val data = store.serializeUpdate(fromLong(3L), data = makeKeyVal(3L, 3L),
+      isMerged = true, prevFileNumber = pos.fileNum, prevFileOffset = pos.offset)
+    store.append(data)
+
+    //and update positions
+    store.validPos.set(eof)
+    update(4L)
+
+    //older entries should be ignore, latest entry is merged
+    def check() {
+      assert(None == store.get(fromLong(1L)))
+      assert(None == store.get(fromLong(2L)))
+      assert(Some(fromLong(3L)) == store.get(fromLong(3L)))
+      assert(Some(fromLong(4L)) == store.get(fromLong(4L)))
+    }
+
+    check()
+    store.close()
+    check()
+    store.close()
+  }
 }

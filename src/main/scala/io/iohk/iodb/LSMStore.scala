@@ -20,7 +20,7 @@ protected[iodb] object LSMStore {
 
   val fileJournalPrefix = "journal"
   val fileShardPrefix = "shard-"
-  val updateHeaderSize = +4 + 1 + 8 + 8 + 4 + 4 + 4 + 1
+  val updateHeaderSize = +4 + 1 + 8 + 8 + 4 + 4 + 4
 
   val shardLayoutLog = "shardLayoutLog"
 
