@@ -13,9 +13,9 @@ class ShardedStoreTest extends StoreTest {
       val b = TestUtils.fromLong(i)
       store.update(versionID = b, toRemove = Nil, toUpdate = List((b, b)))
     }
-    assert(store.journal.loadUpdateOffsets().size > 1)
+    assert(store.journal.loadUpdateOffsets(true).size > 1)
     store.distribute()
-    assert(store.journal.loadUpdateOffsets().size == 1)
+    assert(store.journal.loadUpdateOffsets(true).size == 1)
     store.close()
   }
 

@@ -255,7 +255,6 @@ class LogStore(
         fout.close()
         fout = null
       }
-      val offsets = loadUpdateOffsets()
       //FIXME thread unsafe `fileHandles` access
       val newFileNumber = fileHandles.lastKey() + 1
       val fileJournal = fileNumToFile(newFileNumber)
@@ -385,7 +384,7 @@ class LogStore(
       val fileHandle = fileLock(fileNum)
       try {
         if (fileHandle == null)
-          throw new DataCorruptionException("File Number not found")
+          throw new DataCorruptionException("File Number not found " + fileNum)
         val header = fileAccess.readByte(fileHandle, filePos.offset + 4)
 
         header match {
@@ -405,7 +404,8 @@ class LogStore(
         //move to previous update
         filePos = loadPrevFilePos(fileHandle, filePos.offset)
       } finally {
-        fileUnlock(fileNum)
+        if (fileHandle != null)
+          fileUnlock(fileNum)
       }
     }
     return None
@@ -428,7 +428,8 @@ class LogStore(
         (key, pos)
       }.toMap
     } finally {
-      fileUnlock(filePos.fileNum)
+      if (fileHandle != null)
+        fileUnlock(filePos.fileNum)
     }
   }
 
@@ -465,7 +466,8 @@ class LogStore(
         //move to previous update
         filePos = loadPrevFilePos(fileHandle, filePos.offset)
       } finally {
-        fileUnlock(fileNum)
+        if (fileHandle != null)
+          fileUnlock(fileNum)
       }
     }
     return (None, None)
@@ -491,29 +493,35 @@ class LogStore(
     }
   }
 
-  protected[iodb] def loadUpdateOffsets(): Iterable[FilePos] = {
+  protected[iodb] def loadUpdateOffsets(stopAtMerge: Boolean): Iterable[FilePos] = {
     // load offsets of all log entries
     var filePos = validPos.get
     val offsets = mutable.ArrayBuffer[FilePos]()
 
     //TODO merged stop assertions
     while (filePos != null && filePos.offset >= 0) {
-      offsets += filePos
       val fileNum = filePos.fileNum
 
       val fileHandle = fileLock(fileNum)
       try {
+        offsets += filePos
+
+        val shouldStop =
+          if (!stopAtMerge) false
+          else loadIsMerged(filePos) //TODO another lock
+
         //move to previous update
-        filePos = if (fileHandle == null) null else loadPrevFilePos(fileHandle, filePos.offset)
+        filePos = if (fileHandle == null || shouldStop) null else loadPrevFilePos(fileHandle, filePos.offset)
       } finally {
-        fileUnlock(fileNum)
+        if (fileHandle != null)
+          fileUnlock(fileNum)
       }
     }
     return offsets
   }
 
   override def rollbackVersions(): Iterable[VersionID] = {
-    loadUpdateOffsets()
+    loadUpdateOffsets(stopAtMerge = false)
       .map(loadVersionID(_))
       .toBuffer.reverse
   }
@@ -530,13 +538,15 @@ class LogStore(
       fileAccess.readData(fileHandle, versionIDOffset, ret.data)
       return ret
     } finally {
-      fileUnlock(fileNum)
+      if (fileHandle != null)
+        fileUnlock(fileNum)
     }
   }
 
   protected[iodb] def loadKeyValues(
-                                 offsets: Iterable[FilePos],
-                                 dropTombstones: Boolean)
+                                     offsets: Iterable[FilePos],
+                                     files: Map[FileNum, Any],
+                                     dropTombstones: Boolean)
   : Iterator[(K, V)] = {
 
     // open iterators over all log entries
@@ -545,8 +555,7 @@ class LogStore(
       .zipWithIndex
       //convert to iterators over log entries
       // each key/value pair comes with index in `offsets`, most recent pairs have lower index
-      //FIXME thread unsafe access to `fileHandles`
-      .map(a => fileAccess.readKeyValues(fileHandles.get(a._1.fileNum), a._1.offset, keySize).map(e => (e._1, a._2, e._2)).asJava)
+      .map(a => fileAccess.readKeyValues(files(a._1.fileNum), a._1.offset, keySize).map(e => (e._1, a._2, e._2)).asJava)
       //add entry index to iterators
       .asJava
 
@@ -575,27 +584,35 @@ class LogStore(
   def compact(): Unit = {
     appendLock.lock()
     try {
-      val offsets = loadUpdateOffsets()
+      val offsets = loadUpdateOffsets(stopAtMerge = true)
       if (offsets.size <= 1)
         return
 
-      val keyVals = loadKeyValues(offsets, dropTombstones = true).toBuffer //TODO serialize keys lazily, without loading entire chunk to memory
-      //load versionID for newest offset
-      val newestPos = offsets.head
-      val versionID = loadVersionID(newestPos)
+      //lock all files for reading
+      val files = offsets.map(o => (o.fileNum, fileLock(o.fileNum))).toMap
+      try {
+        val keyVals = loadKeyValues(offsets, files, dropTombstones = true).toBuffer //TODO serialize keys lazily, without loading entire chunk to memory
+        //load versionID for newest offset
+        val newestPos = offsets.head
+        val versionID = loadVersionID(newestPos)
 
-      startNewFile()
-      val data = serializeUpdate(versionID, keyVals,
-        isMerged = true,
-        prevFileNumber = newestPos.fileNum,
-        prevFileOffset = newestPos.offset
-      )
-      startNewFile()
-      append(data)
-      //and update pointers
-      validPos.set(eof)
-      eof = new FilePos(fileNum = eof.fileNum, offset = eof.offset + data.length)
-
+        startNewFile()
+        val data = serializeUpdate(versionID, keyVals,
+          isMerged = true,
+          prevFileNumber = newestPos.fileNum,
+          prevFileOffset = newestPos.offset
+        )
+        startNewFile()
+        append(data)
+        //and update pointers
+        validPos.set(eof)
+        eof = new FilePos(fileNum = eof.fileNum, offset = eof.offset + data.length)
+      } finally {
+        for ((fileNum, fileHandle) <- files) {
+          if (fileHandle != null)
+            fileUnlock(fileNum)
+        }
+      }
     } finally {
       appendLock.unlock()
     }
@@ -603,26 +620,37 @@ class LogStore(
   }
 
   override def getAll(consumer: (K, V) => Unit): Unit = {
-    val offsets = loadUpdateOffsets()
+    val offsets = loadUpdateOffsets(stopAtMerge = true)
     if (offsets.size <= 1)
       return
-    val keyVals = loadKeyValues(offsets, dropTombstones = true)
-    for ((key, value) <- keyVals) {
-      consumer(key, value)
+    //lock files for reading
+    val files = offsets.map(o => (o.fileNum, fileLock(o.fileNum))).toMap
+    try {
+
+      val keyVals = loadKeyValues(offsets, files, dropTombstones = true)
+      for ((key, value) <- keyVals) {
+        consumer(key, value)
+      }
+    } finally {
+      for ((fileNum, fileHandle) <- files) {
+        if (fileHandle != null)
+          fileUnlock(fileNum)
+      }
     }
+
   }
 
   override def clean(count: Int): Unit = {
     compact()
     appendLock.lock()
     try {
-      val offsets = loadUpdateOffsets()
+      val offsets = loadUpdateOffsets(stopAtMerge = false)
       //files which are used in last
       //remove all files which are lower than lowest used file N versions
       val preserve = offsets.take(count).map(_.fileNum).toSet
 
       //FIXME thread unsafe access??
-      for (fileNum <- fileHandles.keySet().asScala.filterNot(preserve.contains(_))) {
+      for (fileNum <- fileHandles.keySet().asScala.filterNot(preserve.contains(_)).toArray) {
         fileDelete(fileNum)
       }
     } finally {
@@ -641,7 +669,7 @@ class LogStore(
     appendLock.lock()
     try {
       //find offset for version ID
-      for (pos <- loadUpdateOffsets()) {
+      for (pos <- loadUpdateOffsets(stopAtMerge = false)) {
         val versionID2 = loadVersionID(pos)
         if (versionID2 == versionID) {
           //insert new link to log
@@ -673,7 +701,7 @@ class LogStore(
 
   override def verify(): Unit = {
     //check offsets, check at least one is merged
-    val offs = loadUpdateOffsets().toIndexedSeq
+    val offs = loadUpdateOffsets(stopAtMerge = false).toIndexedSeq
     // offset should start at zero position, or contain at least one merged update
     if (!offs.isEmpty) {
       val genesisEntry = offs.last.fileNum == 0 && offs.last.offset == 0

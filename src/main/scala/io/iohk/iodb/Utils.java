@@ -250,19 +250,20 @@ public class Utils {
     }
 
     public static void fileReaderIncrement(ConcurrentMap<Long, Long> readers, Long fileNum) {
-        readers.compute(fileNum, (key, value) -> value == null ? 1 : value + 1);
+        readers.compute(fileNum, (key, value) -> value == null ? 1L : value + 1L);
     }
 
 
     public static void fileReaderDecrement(ConcurrentMap<Long, Long> readers, Long fileNum) {
         readers.compute(fileNum, (key, value) -> {
             if (value == null)
-                throw new IllegalMonitorStateException("file not locked");
+                throw new IllegalMonitorStateException("file not locked: " + fileNum);
             if (value.longValue() == 1L) {
                 return null;
             } else {
-                return value - 1;
+                return value - 1L;
             }
         });
+
     }
 }

@@ -64,18 +64,27 @@ class ShardedStore(val dir: File, val keySize: Int, val shardCount: Int = 1)
   }
 
   def distribute(): Unit = {
-    val journalOffsets = journal.loadUpdateOffsets()
-    if (journalOffsets.isEmpty)
+    val offsets = journal.loadUpdateOffsets(stopAtMerge = true)
+    if (offsets.isEmpty)
       return
-    val dataset = journal.loadKeyValues(journalOffsets, dropTombstones = false).toIterable
-    val versionID = journal.loadVersionID(journalOffsets.last)
+    //lock all files for reading
+    val files = offsets.map(o => (o.fileNum, journal.fileLock(o.fileNum))).toMap
+    try {
 
-    val shard1Offset = shard1.updateDistribute(versionID = versionID, data = dataset, triggerCompaction = false)
+      val dataset = journal.loadKeyValues(offsets, files, dropTombstones = false).toIterable
+      val versionID = journal.loadVersionID(offsets.last)
 
-    val journalOffset = journalOffsets.head
-    // FIXME single shard
-    // insert distribute entry into journal
-    journal.appendDistributeEntry(journalPos = journalOffset, shards = Map(shards.firstKey() -> shard1Offset))
+      val shard1Offset = shard1.updateDistribute(versionID = versionID, data = dataset, triggerCompaction = false)
 
+      val journalOffset = offsets.head
+      // FIXME single shard
+      // insert distribute entry into journal
+      journal.appendDistributeEntry(journalPos = journalOffset, shards = Map(shards.firstKey() -> shard1Offset))
+    } finally {
+      for ((fileNum, fileHandle) <- files) {
+        if (fileHandle != null)
+          journal.fileUnlock(fileNum)
+      }
+    }
   }
 }

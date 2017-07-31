@@ -206,7 +206,7 @@ abstract class StoreTest extends TestWithTempDir {
   }
 
   @Test def concurrent_key_update(): Unit = {
-    val threadCount = 100
+    val threadCount = 1
     val duration = 100 * 1000; // in milliseconds
 
     val finishedTaskCounter = new AtomicInteger(0)
@@ -240,6 +240,7 @@ abstract class StoreTest extends TestWithTempDir {
           store.asInstanceOf[ShardedStore].distribute()
         }
       }
+      finishedTaskCounter.incrementAndGet()
     }
 
     exec.finish()

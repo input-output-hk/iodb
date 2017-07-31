@@ -81,7 +81,7 @@ class LogStoreTest extends StoreTest {
     val updated2 = mutable.HashMap[K, V]()
     val removed2 = mutable.HashSet[K]()
 
-    store.loadKeyValues(store.loadUpdateOffsets(), false).foreach { case (k, v) =>
+    store.loadKeyValues(store.loadUpdateOffsets(stopAtMerge = true), store.fileHandles.asScala.toMap, false).foreach { case (k, v) =>
       if (v eq tombstone)
         removed2.add(k)
       else
@@ -209,6 +209,25 @@ class LogStoreTest extends StoreTest {
     assert(store.fileSemaphore.get(22L) == null)
 
     store.close()
+  }
+
+
+  @Test def loadOffsets_stops_at_merge(): Unit = {
+    val store = new LogStore(dir = dir, keySize = 8)
+
+    for (i <- 1 to 10) {
+      val b = fromLong(i)
+      store.update(versionID = b, toRemove = Nil, toUpdate = List((b, b)))
+    }
+
+    store.compact()
+    assert(1 == store.loadUpdateOffsets(stopAtMerge = true).size)
+
+    for (i <- 1 to 10) {
+      val b = fromLong(i + 20)
+      store.update(versionID = b, toRemove = Nil, toUpdate = List((b, b)))
+      assert(i + 1 == store.loadUpdateOffsets(stopAtMerge = true).size)
+    }
   }
 
 }
