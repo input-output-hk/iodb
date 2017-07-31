@@ -41,8 +41,6 @@ class LevelDBStore(val dir: File, val storeName: String = "leveldb") extends Sto
 
   override def clean(count: Int): Unit = ???
 
-  override def cleanStop(): Unit = ???
-
   override def lastVersionID: Option[VersionID] = lastVersion
 
   override def update(versionID: VersionID,
@@ -69,9 +67,9 @@ class LevelDBStore(val dir: File, val storeName: String = "leveldb") extends Sto
     db.close()
   }
 
-  /**
-    * Returns all versions known to this store.
-    * User can rollback to versions in this list with rollback method
-    */
+
   override def rollbackVersions(): Iterable[VersionID] = ???
+
+
+  override def verify(): Unit = ???
 }

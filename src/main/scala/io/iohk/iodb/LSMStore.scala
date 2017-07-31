@@ -859,9 +859,6 @@ class LSMStore(
     taskCleanup()
   }
 
-  override def cleanStop(): Unit = {
-
-  }
 
   override def rollback(versionID: VersionID): Unit = {
     def notFound() = throw new NoSuchElementException("versionID not found, can not rollback")

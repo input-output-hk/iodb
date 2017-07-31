@@ -116,12 +116,6 @@ trait Store {
   def clean(count: Int)
 
   /**
-    * Pauses background compaction process.
-    * This can be used if machine needs all available CPU power for other tasks.
-    */
-  def cleanStop(): Unit //TODO: Try[Unit] ?
-
-  /**
     * Returns current versionID used by Store.
     * It is last version store was update to with `update()` method.
     *
@@ -170,5 +164,13 @@ trait Store {
     * User can rollback to versions in this list with rollback method
     */
   def rollbackVersions(): Iterable[VersionID]
+
+
+  /**
+    * Checks storage for consistency, invalid checksums, data corruption...
+    * Throws an exception if any error is found.
+    * This method may run for very long time, depending on store size.
+    */
+  def verify(): Unit
 
 }

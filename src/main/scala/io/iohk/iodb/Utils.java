@@ -8,12 +8,13 @@ import java.io.*;
 import java.nio.*;
 import java.nio.channels.FileChannel;
 import java.util.Comparator;
+import java.util.concurrent.ConcurrentMap;
 import java.util.logging.*;
 
 /**
  * Java utilities
  */
-class Utils {
+public class Utils {
 
 
     static final String shardInfoFileExt = "shardinfo";
@@ -246,5 +247,22 @@ class Utils {
     public static long checksum(byte[] data, int startOffset, int size) {
         int seed = 0x3289989d;
         return hash64.hash(data, startOffset, size, seed);
+    }
+
+    public static void fileReaderIncrement(ConcurrentMap<Long, Long> readers, Long fileNum) {
+        readers.compute(fileNum, (key, value) -> value == null ? 1 : value + 1);
+    }
+
+
+    public static void fileReaderDecrement(ConcurrentMap<Long, Long> readers, Long fileNum) {
+        readers.compute(fileNum, (key, value) -> {
+            if (value == null)
+                throw new IllegalMonitorStateException("file not locked");
+            if (value.longValue() == 1L) {
+                return null;
+            } else {
+                return value - 1;
+            }
+        });
     }
 }

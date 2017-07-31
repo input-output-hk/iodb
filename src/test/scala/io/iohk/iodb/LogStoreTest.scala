@@ -7,6 +7,7 @@ import io.iohk.iodb.TestUtils._
 import org.junit.Assert._
 import org.junit.Test
 
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.util.Random
 
@@ -47,6 +48,7 @@ class LogStoreTest extends StoreTest {
     //try non existent
     val nonExistentKey = randomA(32)
     assertEquals(null, FileAccess.SAFE.getValue(fa, nonExistentKey, store.keySize, foffset))
+    store.verify()
     store.close()
   }
 
@@ -79,7 +81,7 @@ class LogStoreTest extends StoreTest {
     val updated2 = mutable.HashMap[K, V]()
     val removed2 = mutable.HashSet[K]()
 
-    store.keyValues(store.loadUpdateOffsets(), false).foreach { case (k, v) =>
+    store.loadKeyValues(store.loadUpdateOffsets(), false).foreach { case (k, v) =>
       if (v eq tombstone)
         removed2.add(k)
       else
@@ -89,7 +91,7 @@ class LogStoreTest extends StoreTest {
     //and compare result
     assertEquals(removed, removed2)
     assertEquals(updated, updated2)
-
+    store.verify()
     store.close()
   }
 
@@ -110,6 +112,7 @@ class LogStoreTest extends StoreTest {
       assertEquals(toUpdate, toUpdate2)
       assertEquals(toRemove, toRemove2)
     }
+    store.verify()
     store.close()
   }
 
@@ -128,23 +131,25 @@ class LogStoreTest extends StoreTest {
 
     def update(i: Long) = store.update(fromLong(i), toUpdate = makeKeyVal(i, i), toRemove = Nil)
 
-    update(0)
-    store.startNewFile()
     update(1)
+    assert(store.eof.fileNum == 1)
     store.startNewFile()
     update(2)
     store.startNewFile()
     update(3)
+    store.startNewFile()
+    update(4)
 
     //skip over #2
-    store.appendFileAlias(2, 0, 1, 0)
+    store.appendFileAlias(3, 0, 2, 0)
 
     def check() {
-      assert(List(fromLong(0), fromLong(1), fromLong(3)) == store.rollbackVersions())
-      assert(Some(fromLong(0)) == store.get(fromLong(0)))
+      assert(Map(FilePos(3, 0) -> FilePos(2, 0)).asJava == store.offsetAliases)
+      assert(List(fromLong(1), fromLong(2), fromLong(4)) == store.rollbackVersions())
       assert(Some(fromLong(1)) == store.get(fromLong(1)))
-      assert(None == store.get(fromLong(2)))
-      assert(Some(fromLong(3)) == store.get(fromLong(3)))
+      assert(Some(fromLong(2)) == store.get(fromLong(2)))
+      assert(None == store.get(fromLong(3)))
+      assert(Some(fromLong(4)) == store.get(fromLong(4)))
     }
 
     val aliases = store.offsetAliases
@@ -167,15 +172,17 @@ class LogStoreTest extends StoreTest {
     //insert compacted entry
     val eof = store.eof
     val pos = store.validPos.get()
-    val data = store.serializeUpdate(fromLong(3L), data = makeKeyVal(3L, 3L),
+    val compactedData = store.serializeUpdate(fromLong(3L), data = makeKeyVal(3L, 3L),
       isMerged = true, prevFileNumber = pos.fileNum, prevFileOffset = pos.offset)
-    store.append(data)
+    store.append(compactedData)
 
     //and update positions
     store.validPos.set(eof)
+    store.eof = store.eof.copy(offset = store.eof.offset + compactedData.size)
+    //add extra entry after compacted entry
     update(4L)
 
-    //older entries should be ignore, latest entry is merged
+    //older entries should be ignored, latest entry is merged
     def check() {
       assert(None == store.get(fromLong(1L)))
       assert(None == store.get(fromLong(2L)))
@@ -185,7 +192,23 @@ class LogStoreTest extends StoreTest {
 
     check()
     store.close()
+    store = new LogStore(dir = dir, keySize = 8)
     check()
     store.close()
   }
+
+  @Test def readerIncrement(): Unit = {
+    val store = new LogStore(dir = dir, keySize = 8)
+    Utils.fileReaderIncrement(store.fileSemaphore, 22L)
+    assert(store.fileSemaphore.get(22L) == 1L)
+    Utils.fileReaderIncrement(store.fileSemaphore, 22L)
+    assert(store.fileSemaphore.get(22L) == 2L)
+    Utils.fileReaderDecrement(store.fileSemaphore, 22L)
+    assert(store.fileSemaphore.get(22L) == 1L)
+    Utils.fileReaderDecrement(store.fileSemaphore, 22L)
+    assert(store.fileSemaphore.get(22L) == null)
+
+    store.close()
+  }
+
 }

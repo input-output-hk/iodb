@@ -58,17 +58,15 @@ class RocksStore(val dir: File) extends Store {
     db.close()
   }
 
-  /** pause cleaning operation */
-  override def cleanStop(): Unit = {
 
-  }
 
   override def clean(count: Int): Unit = ???
 
   override def rollback(versionID: VersionID): Unit = ???
 
-  /** Get content of entire store */
   override def getAll(consumer: (K, V) => Unit) = ???
 
   override def rollbackVersions(): Iterable[VersionID] = ???
+
+  override def verify(): Unit = ???
 }

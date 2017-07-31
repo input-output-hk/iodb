@@ -316,8 +316,6 @@ class QuickStore(
 
   override def clean(count: Int): Unit = {}
 
-  override def cleanStop(): Unit = {}
-
   override def rollbackVersions(): Iterable[VersionID] = {
     lock.readLock().lock()
     try {
@@ -331,6 +329,10 @@ class QuickStore(
     }
   }
 
+
+  override def verify(): Unit = {
+
+  }
 }
 
 

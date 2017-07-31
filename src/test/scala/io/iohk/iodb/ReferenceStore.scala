@@ -20,8 +20,6 @@ class ReferenceStore extends Store {
     history = history.takeRight(count)
   }
 
-  override def cleanStop(): Unit = {}
-
   override def lastVersionID: Option[VersionID] = curVersiondId
 
   override def update(versionID: VersionID, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
@@ -54,4 +52,6 @@ class ReferenceStore extends Store {
   }
 
   override def rollbackVersions(): Iterable[VersionID] = history.keys
+
+  override def verify(): Unit = ???
 }

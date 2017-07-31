@@ -1,7 +1,7 @@
 package io.iohk.iodb
 
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 
 import io.iohk.iodb.Store.{K, V}
 import io.iohk.iodb.TestUtils._
@@ -23,6 +23,7 @@ abstract class StoreTest extends TestWithTempDir {
 
     def check(): Unit = {
       (1L to 89L).foreach(i => assert(Some(fromLong(i)) == store.get(fromLong(i))))
+      store.verify()
     }
 
     check()
@@ -57,6 +58,7 @@ abstract class StoreTest extends TestWithTempDir {
     //try non existent
     val nonExistentKey = randomA(32)
     assertEquals(None, store.get(nonExistentKey))
+    store.verify()
     store.close()
   }
 
@@ -92,7 +94,7 @@ abstract class StoreTest extends TestWithTempDir {
       updated2.put(key, value)
     }
     assertEquals(updated, updated2)
-
+    store.verify()
     store.close()
   }
 
@@ -112,6 +114,7 @@ abstract class StoreTest extends TestWithTempDir {
     }
     val versions2 = store.rollbackVersions().toBuffer
     assertEquals(versions, versions2)
+    store.verify()
     store.close()
   }
 
@@ -122,10 +125,12 @@ abstract class StoreTest extends TestWithTempDir {
     assertEquals(Some(fromLong(1)), store.lastVersionID)
     assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
 
+    store.verify()
     store.close()
     store = open(keySize = 8)
     assertEquals(Some(fromLong(1)), store.lastVersionID)
     assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
+    store.verify()
   }
 
   @Test def rollback(): Unit = {
@@ -139,11 +144,13 @@ abstract class StoreTest extends TestWithTempDir {
     assertEquals(Some(fromLong(1)), store.lastVersionID)
     assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
 
+    store.verify()
     //reopen, rollback should be preserved
     store.close()
     store = open(keySize = 8)
     assertEquals(Some(fromLong(1)), store.lastVersionID)
     assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
+    store.verify()
   }
 
   @Test def longRunningUpdates(): Unit = {
@@ -157,6 +164,7 @@ abstract class StoreTest extends TestWithTempDir {
       }
       assert(TestUtils.dirSize(dir) < 1e8)
     }
+    store.verify()
     store.close()
   }
 
@@ -193,17 +201,51 @@ abstract class StoreTest extends TestWithTempDir {
 
     val versions = store.rollbackVersions().toSet
     assert(keys == versions)
-
+    store.verify()
     store.close()
   }
-}
 
-class QuickStoreRefTest extends StoreTest {
-  override def open(keySize: Int): Store = new QuickStore(dir)
+  @Test def concurrent_key_update(): Unit = {
+    val threadCount = 100
+    val duration = 100 * 1000; // in milliseconds
 
-  @org.junit.Ignore
-  @Test override def longRunningUpdates(): Unit = {
+    val finishedTaskCounter = new AtomicInteger(0)
 
+    val exec = new ForkExecutor(duration)
+    val store: Store = open(keySize = 8)
+
+    for (i <- (1 to threadCount)) {
+      val key = TestUtils.fromLong(i)
+      exec.execute {
+        var counter = 1L
+        val r = new Random()
+        while (exec.keepRunning) {
+          val versionID2 = TestUtils.fromLong(r.nextLong())
+          val value = TestUtils.fromLong(counter)
+          store.update(versionID2, Nil, List((key, value)))
+          for (a <- (1 until 100)) {
+            assert(store.get(key) == Some(value))
+          }
+
+          counter += 1
+        }
+      }
+      finishedTaskCounter.incrementAndGet()
+    }
+    //start cleanup thread
+    exec.execute {
+      while (exec.keepRunning) {
+        store.clean(1)
+        if (store.isInstanceOf[ShardedStore]) {
+          store.asInstanceOf[ShardedStore].distribute()
+        }
+      }
+    }
+
+    exec.finish()
+    store.close()
+
+    assert(threadCount + 1 == finishedTaskCounter.get())
   }
 
 }
