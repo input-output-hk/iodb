@@ -20,7 +20,7 @@ object SimpleKVBench extends Benchmark{
     val keyCount = if (args.length > 0) args(0).toInt else defaultKeyCount
     var dir = TestUtils.tempDir()
     val lb = bench(
-      store = new LSMStore(dir, keySize = KeySize),
+      store = new ShardedStore(dir, keySize = KeySize),
       dir = dir,
       updates = updates,
       keyCount = keyCount)

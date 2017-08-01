@@ -160,7 +160,7 @@ object FileAccess {
       val keyCount = buf.getInt(offset.toInt + 8 + 4)
       assert(keyCount * keySize >= 0 && keyCount * keySize < updateSize)
 
-      val baseKeyOffset = offset.toInt + LSMStore.updateHeaderSize
+      val baseKeyOffset = offset.toInt + LogStore.updateHeaderSize
 
       return (0 until keyCount).map { i =>
         val keyOffset = baseKeyOffset + i * keySize
@@ -196,7 +196,7 @@ object FileAccess {
       val buf = castBuf(fileHandle).duplicate()
 
       val keyCount = buf.getInt(updateOffset.toInt + 8 + 4)
-      val baseKeyOffset = updateOffset + LSMStore.updateHeaderSize
+      val baseKeyOffset = updateOffset + LogStore.updateHeaderSize
 
       val key2 = new Array[Byte](keySize)
       var lo: Int = 0
@@ -239,7 +239,7 @@ object FileAccess {
       val buf = castBuf(fileHandle).duplicate()
 
       val keyCount = buf.getInt(updateOffset.toInt + 8 + 4)
-      val baseKeyOffset = updateOffset + LSMStore.updateHeaderSize
+      val baseKeyOffset = updateOffset + LogStore.updateHeaderSize
 
       val r = Utils.unsafeBinarySearch(buf, key.data, baseKeyOffset.toInt, keyCount)
       if (r < 0)
@@ -276,7 +276,7 @@ object FileAccess {
 
       val keyCount: Long = readInt(c, updateOffset + LogStore.updateKeyCountOffset, tempBuf)
 
-      val baseKeyOffset = updateOffset + LSMStore.updateHeaderSize
+      val baseKeyOffset = updateOffset + LogStore.updateHeaderSize
 
       val key2 = new Array[Byte](keySize)
       val key2B = ByteBuffer.wrap(key2)
@@ -348,7 +348,7 @@ object FileAccess {
       val keyCount = readInt(c, offset + LogStore.updateKeyCountOffset, tempBuf)
       assert(keyCount * keySize >= 0 && keyCount * keySize < updateSize)
 
-      val baseKeyOffset = offset + LSMStore.updateHeaderSize
+      val baseKeyOffset = offset + LogStore.updateHeaderSize
 
       return (0 until keyCount).map { i =>
         val keyOffset = baseKeyOffset + i * keySize

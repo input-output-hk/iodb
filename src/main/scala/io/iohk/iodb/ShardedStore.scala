@@ -4,12 +4,16 @@ import java.io.File
 
 import io.iohk.iodb.Store.{K, V, VersionID}
 
-class ShardedStore(val dir: File, val keySize: Int, val shardCount: Int = 1)
+class ShardedStore(
+                    val dir: File,
+                    val keySize: Int = 32,
+                    val shardCount: Int = 1,
+                    val fileAccess: FileAccess = FileAccess.SAFE)
   extends Store {
 
-  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal")
+  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal", fileAccess = fileAccess)
 
-  val shard1 = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard1")
+  val shard1 = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard1", fileAccess = fileAccess)
 
   val shards = new java.util.TreeMap[K, LogStore]()
   shards.put(new K(new Array[Byte](keySize)), shard1)

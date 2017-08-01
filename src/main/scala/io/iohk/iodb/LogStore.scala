@@ -2,6 +2,7 @@ package io.iohk.iodb
 
 import java.io.{ByteArrayOutputStream, DataOutputStream, File, FileOutputStream}
 import java.nio.ByteBuffer
+import java.util.Comparator
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentSkipListMap}
@@ -19,6 +20,8 @@ object LogStore {
   val updateKeyCountOffset = updatePrevFileOffset + 8
 
   val updateVersionIDSize = updateKeyCountOffset + 8
+
+  val updateHeaderSize = +4 + 1 + 8 + 8 + 4 + 4 + 4
 
 
   val headUpdate = 1.toByte
@@ -533,7 +536,7 @@ class LogStore(
     try {
       val keyCount = fileAccess.readInt(fileHandle, filePos.offset + LogStore.updateKeyCountOffset)
       val versionIDSize = fileAccess.readInt(fileHandle, filePos.offset + LogStore.updateVersionIDSize)
-      val versionIDOffset = filePos.offset + LSMStore.updateHeaderSize + (keySize + 4 + 4) * keyCount
+      val versionIDOffset = filePos.offset + LogStore.updateHeaderSize + (keySize + 4 + 4) * keyCount
       val ret = new VersionID(versionIDSize)
       fileAccess.readData(fileHandle, versionIDOffset, ret.data)
       return ret
@@ -767,5 +770,19 @@ class LogStore(
     } finally {
       fileLock.unlock()
     }
+  }
+}
+
+
+/** Compares key-value pairs. Key is used for comparation, value is ignored */
+protected[iodb] object KeyOffsetValueComparator extends Comparator[(K, Int, V)] {
+  def compare(o1: (K, Int, V),
+              o2: (K, Int, V)): Int = {
+    //compare by key
+    var c = o1._1.compareTo(o2._1)
+    //compare by index, higher index means newer entry
+    if (c == 0)
+      c = o1._2.compareTo(o2._2)
+    c
   }
 }

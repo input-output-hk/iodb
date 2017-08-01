@@ -3,7 +3,7 @@ package io.iohk.iodb.bench
 import java.io.File
 
 import ch.qos.logback.classic.LoggerContext
-import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store, TestUtils}
+import io.iohk.iodb.{ByteArrayWrapper, ShardedStore, Store, TestUtils}
 import org.slf4j.LoggerFactory
 
 /**
@@ -41,7 +41,7 @@ object InitialProcessing extends Benchmark {
     context.stop()
 
     var dir = TestUtils.tempDir()
-    bench(new LSMStore(dir, keySize = KeySize), dir)
+    bench(new ShardedStore(dir, keySize = KeySize), dir)
 
     System.gc()
     Thread.sleep(15000)

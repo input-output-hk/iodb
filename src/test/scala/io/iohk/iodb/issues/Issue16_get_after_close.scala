@@ -18,7 +18,7 @@ class Issue16_get_after_close extends TestWithTempDir {
     val TestKeySize = 32
     val testByteArray = (0 until TestKeySize).map(_.toByte).toArray
 
-    val lSMStore: LSMStore = new LSMStore(dir = dir, keySize = TestKeySize, fileAccess = fileAccess)
+    val lSMStore: ShardedStore = new ShardedStore(dir = dir, keySize = TestKeySize, fileAccess = fileAccess)
     lSMStore.update(ByteArrayWrapper(testByteArray), Seq(), Seq())
 
     lSMStore.close()

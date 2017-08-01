@@ -2,7 +2,7 @@ package io.iohk.iodb.smoke
 
 import io.iohk.iodb.Store._
 import io.iohk.iodb.TestUtils._
-import io.iohk.iodb.{ByteArrayWrapper, LSMStore}
+import io.iohk.iodb.{ByteArrayWrapper, ShardedStore}
 import org.junit.Test
 
 import scala.collection.mutable
@@ -38,7 +38,9 @@ class RandomRollbackTest {
     var removed = Set[K]()
     var version = 1L
 
-    val store = new LSMStore(dir = dir, keepVersions = keepVersions, maxJournalEntryCount = 1000, splitSize = 1000, maxFileSize = 64000, executor = null)
+    val store = new ShardedStore(dir = dir)
+    //    , keepVersions = keepVersions)
+    //      maxJournalEntryCount = 1000, splitSize = 1000, maxFileSize = 64000, executor = null)
 
     for (i <- 0 until loops) {
       //randomly switch between actions

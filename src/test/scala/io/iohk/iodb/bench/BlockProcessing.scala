@@ -3,7 +3,7 @@ package io.iohk.iodb.bench
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
-import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store, TestUtils}
+import io.iohk.iodb.{ByteArrayWrapper, ShardedStore, Store, TestUtils}
 
 object BlockProcessing extends Benchmark with App {
 
@@ -43,7 +43,7 @@ object BlockProcessing extends Benchmark with App {
 
 
   var dir = TestUtils.tempDir()
-  bench(new LSMStore(dir, keySize = KeySize), dir)
+  bench(new ShardedStore(dir, keySize = KeySize), dir)
 
   println("===========================")
 

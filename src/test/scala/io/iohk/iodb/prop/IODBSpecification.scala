@@ -22,11 +22,11 @@ class IODBSpecification extends PropSpec
 
 
   property("rollback test LSM") {
-    rollbackTest(blockStorage = new LSMStore(iFile))
+    rollbackTest(blockStorage = new ShardedStore(iFile))
   }
 
   property("writeKey test LSM") {
-    writeKeyTest(blockStorage = new LSMStore(iFile))
+    writeKeyTest(blockStorage = new ShardedStore(iFile))
   }
 
   property("rollback test quick") {
