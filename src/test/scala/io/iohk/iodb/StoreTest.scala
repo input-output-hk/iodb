@@ -1,6 +1,5 @@
 package io.iohk.iodb
 
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 
 import io.iohk.iodb.Store.{K, V}
@@ -178,9 +177,9 @@ abstract class StoreTest extends TestWithTempDir {
     val key = new AtomicLong(0)
     val count: Long = 1e6.toLong
 
-    val exec = Executors.newCachedThreadPool()
+    val exec = new ForkExecutor(1)
     for (i <- 0 until threadCount) {
-      exec.execute(runnable {
+      exec.execute {
         var newVersion = versionID.incrementAndGet()
         while (newVersion <= count) {
           val newKey = key.incrementAndGet()
@@ -188,11 +187,11 @@ abstract class StoreTest extends TestWithTempDir {
 
           newVersion = versionID.incrementAndGet()
         }
-      })
+      }
     }
 
     //wait for tasks to finish
-    waitForFinish(exec)
+    exec.finish()
 
     //ensure all keys are present
     val keys = (1L to count).map(fromLong(_)).toSet
@@ -223,7 +222,7 @@ abstract class StoreTest extends TestWithTempDir {
           val versionID2 = TestUtils.fromLong(r.nextLong())
           val value = TestUtils.fromLong(counter)
           store.update(versionID2, Nil, List((key, value)))
-          for (a <- (1 until 100)) {
+          for (a <- (1 until 100)) { //try more times, higher chance to catch merge/distribute in progress
             assert(store.get(key) == Some(value))
           }
 

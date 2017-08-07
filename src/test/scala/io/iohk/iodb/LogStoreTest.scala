@@ -39,15 +39,15 @@ class LogStoreTest extends StoreTest {
     fout.close()
 
     //try to read all values
-    val fa = FileAccess.SAFE.open(f.getPath)
+    val fa = store.fileOpen(f.getPath)
     for ((key, value) <- data) {
-      val value2 = FileAccess.SAFE.getValue(fa, key, store.keySize, foffset)
+      val value2 = store.fileGetValue(fa, key, store.keySize, foffset)
       assertEquals(value2, Some(value))
     }
 
     //try non existent
     val nonExistentKey = randomA(32)
-    assertEquals(null, FileAccess.SAFE.getValue(fa, nonExistentKey, store.keySize, foffset))
+    assertEquals(null, store.fileGetValue(fa, nonExistentKey, store.keySize, foffset))
     store.verify()
     store.close()
   }
@@ -106,7 +106,7 @@ class LogStoreTest extends StoreTest {
       store.get(tombstone) //initialize fAccess handle
 
       //try to get all key/vals from last update
-      val keyVals = store.fileAccess.readKeyValues(store.fileHandles.firstEntry().getValue, store.validPos.get.offset, keySize = 32).toBuffer
+      val keyVals = store.fileReadKeyValues(store.fileHandles.firstEntry().getValue, store.validPos.get.offset, keySize = 32).toBuffer
       val toUpdate2 = keyVals.filterNot(_._2 eq tombstone).toMap
       val toRemove2 = keyVals.filter(_._2 eq tombstone).map(_._1).toSet
       assertEquals(toUpdate, toUpdate2)
@@ -177,8 +177,8 @@ class LogStoreTest extends StoreTest {
     store.append(compactedData)
 
     //and update positions
-    store.validPos.set(eof)
-    store.eof = store.eof.copy(offset = store.eof.offset + compactedData.size)
+    store.setValidPos(eof)
+    //    store.eof = store.eof.copy(offset = store.eof.offset + compactedData.size)
     //add extra entry after compacted entry
     update(4L)
 

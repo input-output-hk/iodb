@@ -7,13 +7,12 @@ import io.iohk.iodb.Store.{K, V, VersionID}
 class ShardedStore(
                     val dir: File,
                     val keySize: Int = 32,
-                    val shardCount: Int = 1,
-                    val fileAccess: FileAccess = FileAccess.SAFE)
+                    val shardCount: Int = 1)
   extends Store {
 
-  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal", fileAccess = fileAccess)
+  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal")
 
-  val shard1 = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard1", fileAccess = fileAccess)
+  val shard1 = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard1")
 
   val shards = new java.util.TreeMap[K, LogStore]()
   shards.put(new K(new Array[Byte](keySize)), shard1)
@@ -68,22 +67,29 @@ class ShardedStore(
   }
 
   def distribute(): Unit = {
-    val offsets = journal.loadUpdateOffsets(stopAtMerge = true)
+    val pos: FilePos = journal.appendDistrubutePlaceholder()
+
+    val offsets = journal.loadUpdateOffsets(stopAtMerge = true, stopAtDistribute = true, startPos = pos)
     if (offsets.isEmpty)
       return
     //lock all files for reading
-    val files = offsets.map(o => (o.fileNum, journal.fileLock(o.fileNum))).toMap
+    val files = offsets.map(o => (o.pos.fileNum, journal.fileLock(o.pos.fileNum))).toMap
     try {
 
-      val dataset = journal.loadKeyValues(offsets, files, dropTombstones = false).toIterable
-      val versionID = journal.loadVersionID(offsets.last)
+      val dataset = journal.loadKeyValues(offsets.filter(_.entryType == LogStore.headUpdate), files, dropTombstones = false).toIterable
+      if (dataset.isEmpty)
+        return
 
-      val shard1Offset = shard1.updateDistribute(versionID = versionID, data = dataset, triggerCompaction = false)
+      //        val versionID = journal.loadVersionID(offsets.last.pos)
 
-      val journalOffset = offsets.head
+      val shard1Offset = shard1.updateDistribute(versionID = new K(0), data = dataset, triggerCompaction = false)
+
+      val journalOffset = offsets.head.pos
       // FIXME single shard
       // insert distribute entry into journal
-      journal.appendDistributeEntry(journalPos = journalOffset, shards = Map(shards.firstKey() -> shard1Offset))
+      val pos2: FilePos = journal.appendDistributeEntry(journalPos = journalOffset, shards = Map(shards.firstKey() -> shard1Offset))
+      // insert alias, so , so it points to prev
+      journal.appendFileAlias(pos.fileNum, pos.offset, pos2.fileNum, pos2.offset, updateEOF = true)
     } finally {
       for ((fileNum, fileHandle) <- files) {
         if (fileHandle != null)

@@ -178,17 +178,40 @@ public class Utils {
     }
 
 
-    static void readFully(FileChannel channel, long offset, ByteBuffer buf) throws IOException {
+    static void writeFully(FileChannel channel, long offset, ByteBuffer buf) throws IOException {
         int remaining = buf.limit() - buf.position();
 
         while (remaining > 0) {
-            int read = channel.read(buf, offset);
-            if (read < 0)
+            int written = channel.write(buf, offset);
+            if (written < 0)
                 throw new EOFException();
-            remaining -= read;
+            remaining -= written;
         }
     }
 
+
+    static void writeFully(FileChannel channel, ByteBuffer buf) throws IOException {
+        int remaining = buf.limit() - buf.position();
+
+        while (remaining > 0) {
+            int written = channel.write(buf);
+            if (written < 0)
+                throw new EOFException();
+            remaining -= written;
+        }
+    }
+
+    static void readFully(FileChannel channel, long offset, ByteBuffer buf) throws IOException {
+        int remaining = buf.limit() - buf.position();
+
+        long csize = channel.size();
+        while (remaining > 0) {
+            int read = channel.read(buf, offset);
+            if (read < 0)
+                throw new EOFException(channel.size() + " - " + csize);
+            remaining -= read;
+        }
+    }
 
     public static int getInt(byte[] buf, int pos) {
         return
@@ -266,4 +289,6 @@ public class Utils {
         });
 
     }
+
+
 }
