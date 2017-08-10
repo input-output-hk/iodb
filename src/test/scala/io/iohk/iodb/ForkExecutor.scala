@@ -34,7 +34,7 @@ class ForkExecutor(duration: Long) {
       }
     }
 
-    while (!executor.awaitTermination(10, TimeUnit.MILLISECONDS)) {
+    while (!executor.awaitTermination(10, TimeUnit.MICROSECONDS)) {
       rethrow()
     }
     rethrow()

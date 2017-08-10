@@ -59,9 +59,7 @@ class LogStore(
     *
     * Is read without lock, is updated under `appendLock` after file sync
     */
-  //protected[iodb] val validPos = new AtomicReference(new FilePos(fileNum = 1L, offset = -1L))
-
-  protected[iodb] val validPos = new AtomicReference(new FilePos(fileNum = 1L, offset = -1L))
+  protected[iodb] val _validPos = new AtomicReference(new FilePos(fileNum = 1L, offset = -1L))
 
 
   /** End of File. New records will be appended here
@@ -89,8 +87,7 @@ class LogStore(
     ) {
       val num2 = name.substring(filePrefix.size, name.length - fileSuffix.length)
       val num = java.lang.Long.valueOf(num2) //TODO better way to check for numbers
-      val handle = fileOpen(f.getPath)
-      fileHandles.put(num, handle)
+      val handle = fileOpen(num)
     }
 
     //replay all files to restore offsetAliases
@@ -234,7 +231,7 @@ class LogStore(
   def updateDistribute(versionID: VersionID, data: Iterable[(K, V)], triggerCompaction: Boolean): FilePos = {
     appendLock.lock()
     try {
-      val oldPos = validPos.get
+      val oldPos = getValidPos()
       val curPos = eof
       //TODO optimistic serialization outside appendLock, retry offset (and reserialize) under lock
       val serialized = serializeUpdate(
@@ -249,7 +246,7 @@ class LogStore(
       append(serialized)
       //and update pointers
       setValidPos(curPos)
-      if (triggerCompaction && validPos.get().offset != 0 && eof.offset > 1e8) {
+      if (triggerCompaction && getValidPos().offset != 0 && eof.offset > 1e8) {
         //trigger compaction if too big
         compact()
       }
@@ -270,23 +267,27 @@ class LogStore(
       }
       //FIXME thread unsafe `fileHandles` access
       val newFileNumber = fileHandles.lastKey() + 1
-      val fileJournal = fileNumToFile(newFileNumber)
-      fout = fileOpen(fileJournal.getPath)
-      fileHandles.put(newFileNumber, fout)
+      fout = fileOpen(newFileNumber)
       eof = new FilePos(fileNum = newFileNumber, offset = fout.size())
     } finally {
       appendLock.unlock()
     }
   }
 
+
+  def getValidPos(): FilePos = {
+    val pos = _validPos.get()
+    return offsetAliases.getOrDefault(pos, pos)
+  }
+
   def setValidPos(pos: FilePos) {
-    validPos.set(pos)
+    _validPos.set(pos)
   }
 
   def appendDistrubutePlaceholder(): FilePos = {
     appendLock.lock()
     try {
-      val prev = validPos.get()
+      val prev = getValidPos()
       val b = ByteBuffer.allocate(4 + 1 + 16 + +8)
       b.putInt(b.array().length)
       b.put(LogStore.headDistributePlaceholder)
@@ -297,8 +298,8 @@ class LogStore(
       b.putLong(checksum)
 
       val pos = eof
-      setValidPos(pos)
       append(b.array())
+      setValidPos(pos)
       return pos
     } finally {
       appendLock.unlock()
@@ -326,7 +327,7 @@ class LogStore(
       append(b.array())
 
       offsetAliases.put(
-        new FilePos(fileNum = oldFileNum, offset = newFileOffset),
+        new FilePos(fileNum = oldFileNum, offset = oldFileOffset),
         new FilePos(fileNum = newFileNumber, offset = newFileOffset))
     } finally {
       appendLock.unlock()
@@ -362,7 +363,7 @@ class LogStore(
       append(b.array())
 
       //and update pointers
-      validPos.set(curPos)
+      //      validPos.set(curPos)
       return curPos
     } finally {
       appendLock.unlock()
@@ -379,17 +380,16 @@ class LogStore(
       //FIXME thread unsafe `fileHandles` access
       if (fout == null && fileHandles.isEmpty) {
         val fileNum = 1L
-        val fileJournal = fileNumToFile(fileNum)
         //add to file handles
-        fout = fileOpen(fileJournal.getPath)
-        fileHandles.put(fileNum, fout)
+        fout = fileOpen(fileNum)
 
         eof = FilePos(fileNum = fileNum, offset = fout.size())
       }
       assert(fout.size() == eof.offset)
 
       val data2 = ByteBuffer.wrap(data)
-      Utils.writeFully(fout, eof.offset, data2)
+      val offset = eof.offset
+      Utils.writeFully(fout, offset, data2)
 
       eof = eof.copy(offset = eof.offset + data.size)
       assert(fout.size() == eof.offset)
@@ -414,7 +414,7 @@ class LogStore(
 
 
   def get(key: K): Option[V] = {
-    var filePos = validPos.get
+    var filePos = getValidPos()
 
     while (filePos != null && filePos.offset >= 0) {
       val fileNum = filePos.fileNum
@@ -449,6 +449,7 @@ class LogStore(
   }
 
 
+
   def loadDistributeShardPositions(filePos: FilePos): Map[K, FilePos] = {
     val fileHandle = fileLock(filePos.fileNum)
     try {
@@ -471,13 +472,15 @@ class LogStore(
   }
 
   def getDistribute(key: K): (Option[V], Option[Map[K, FilePos]]) = {
-    var filePos = validPos.get
+    var filePos = getValidPos()
     while (filePos != null && filePos.offset >= 0) {
+
       val fileNum = filePos.fileNum
       val fileHandle = fileLock(fileNum)
       try {
         if (fileHandle == null)
           throw new DataCorruptionException("File Number not found: " + fileNum)
+
         val header = fileReadByte(fileHandle, filePos.offset + 4)
         header match {
           case LogStore.headMerge => {}
@@ -486,6 +489,7 @@ class LogStore(
           case LogStore.headDistributePlaceholder => {}
           case _ => throw new DataCorruptionException("unexpected header")
         }
+
 
         if (header == LogStore.headDistributeFinished) {
           val shardPositions = loadDistributeShardPositions(filePos)
@@ -532,9 +536,9 @@ class LogStore(
     }
   }
 
-  protected[iodb] def loadUpdateOffsets(stopAtMerge: Boolean, startPos: FilePos = validPos.get, stopAtDistribute: Boolean = true): Iterable[LogEntryPos] = {
+  protected[iodb] def loadUpdateOffsets(stopAtMerge: Boolean, startPos: FilePos = getValidPos(), stopAtDistribute: Boolean = true): Iterable[LogEntryPos] = {
     // load offsets of all log entries
-    var filePos = validPos.get
+    var filePos = getValidPos()
     val offsets = mutable.ArrayBuffer[LogEntryPos]()
 
     //TODO merged stop assertions
@@ -713,7 +717,7 @@ class LogStore(
   }
 
   override def lastVersionID: Option[VersionID] = {
-    val lastPos = validPos.get()
+    val lastPos = getValidPos()
     if (lastPos == null || lastPos.offset < 0)
       return None
     return Some(loadVersionID(lastPos))
@@ -805,15 +809,6 @@ class LogStore(
     }
   }
 
-  def getCurrEndPos(): (FilePos, FilePos) = {
-    appendLock.lock()
-    try {
-      return (validPos.get(), eof)
-    } finally {
-      appendLock.unlock()
-    }
-  }
-
 
   def taskFileDeleteScheduled(): Unit = {
     fileLock.lock()
@@ -830,13 +825,16 @@ class LogStore(
     }
   }
 
-  def fileOpen(file: String): FileChannel = {
-
-    val path = new File(file).toPath
-    val c = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE)
+  def fileOpen(fileNum: FileNum): FileChannel = {
+    val file = fileNumToFile(fileNum)
+    val c = fileChannelOpen(file)
     c.position(c.size())
+    val oldFile = fileHandles.put(fileNum, c)
+    assert(oldFile == null)
     return c
   }
+
+  def fileChannelOpen(file: File) = FileChannel.open(file.toPath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE)
 
 
   def fileClose(c: FileChannel): Unit = {

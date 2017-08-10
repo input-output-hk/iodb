@@ -208,7 +208,7 @@ public class Utils {
         while (remaining > 0) {
             int read = channel.read(buf, offset);
             if (read < 0)
-                throw new EOFException(channel.size() + " - " + csize);
+                throw new EOFException(channel.size() + " - " + csize + " - " + offset);
             remaining -= read;
         }
     }

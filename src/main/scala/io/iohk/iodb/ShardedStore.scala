@@ -1,7 +1,9 @@
 package io.iohk.iodb
 
-import java.io.File
+import java.io.{File, PrintStream, RandomAccessFile}
 
+import com.google.common.base.Strings
+import com.google.common.io.Closeables
 import io.iohk.iodb.Store.{K, V, VersionID}
 
 class ShardedStore(
@@ -97,4 +99,118 @@ class ShardedStore(
       }
     }
   }
+
+
+  def printDirContent(dir: File = dir, out: PrintStream = System.out): Unit = {
+    if (!dir.exists() || !dir.isDirectory) {
+      out.println("Not a directory: " + dir)
+      return
+    }
+
+
+    def printE(name: String, e: Any): Unit = {
+      out.println(Strings.padStart(name, 15, ' ') + " = " + e)
+    }
+
+    // loop over files in dir
+    for (f <- dir.listFiles(); if (f.isFile)) {
+      try {
+        out.println("")
+        out.println("=== " + f.getName + " ===")
+        val fileLength = f.length()
+        printE("file length", fileLength)
+
+        // loop over log entries in file
+        val r = new RandomAccessFile(f, "r")
+        try {
+
+          while (r.getFilePointer < fileLength) {
+            out.println("----------------")
+
+            printE("Entry offset", r.getFilePointer)
+            val entrySize = r.readInt()
+            val entryEndOffset = r.getFilePointer - 4 + entrySize
+            printE("size", entrySize)
+            val head = r.readByte()
+
+
+            def printLink(name: String): Unit = {
+              printE(name, r.readLong() + ":" + r.readLong())
+            }
+
+            def printPrevLink(): Unit = {
+              printLink("prev")
+            }
+
+            head match {
+              case LogStore.headUpdate => {
+                printE("head", head + " - Update")
+                printPrevLink()
+                val keyCount = r.readInt()
+                val keySize = r.readInt()
+                printE("key count", keyCount)
+                printE("key size", keySize)
+              }
+
+              case LogStore.headMerge => {
+                printE("head", head + " - Merge")
+                printPrevLink()
+
+                val keyCount = r.readInt()
+                val keySize = r.readInt()
+                printE("key count", keyCount)
+                printE("key size", keySize)
+              }
+
+              case LogStore.headDistributePlaceholder => {
+                printE("head", head + " - Distribute Placeholder")
+                printPrevLink()
+              }
+
+              case LogStore.headDistributeFinished => {
+                printE("head", head + " - Distribute Finished")
+                printPrevLink()
+                printLink("journal")
+                val shardCount = r.readInt()
+
+                for (i <- 0 until shardCount) {
+                  out.println("")
+                  printE("shard num", i)
+                  printLink("shard")
+                  val key = new K(keySize)
+                  r.readFully(key.data)
+                  printE("shard key", key)
+                }
+              }
+
+              case LogStore.headAlias => {
+                printE("head", head + " - Alias")
+                printPrevLink()
+                printLink("old")
+                printLink("new")
+              }
+
+              case _ => {
+                out.println(" !!! UNKNOWN HEADER !!!")
+              }
+
+            }
+
+            // seek to end of entry
+            r.seek(entryEndOffset)
+
+          }
+        } finally {
+          Closeables.close(r, true)
+        }
+
+
+      } catch {
+        case e: Exception => e.printStackTrace(out)
+      }
+    }
+
+
+  }
+
 }

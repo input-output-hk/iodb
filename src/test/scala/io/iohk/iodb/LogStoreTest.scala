@@ -39,7 +39,7 @@ class LogStoreTest extends StoreTest {
     fout.close()
 
     //try to read all values
-    val fa = store.fileOpen(f.getPath)
+    val fa = store.fileChannelOpen(f)
     for ((key, value) <- data) {
       val value2 = store.fileGetValue(fa, key, store.keySize, foffset)
       assertEquals(value2, Some(value))
@@ -106,7 +106,7 @@ class LogStoreTest extends StoreTest {
       store.get(tombstone) //initialize fAccess handle
 
       //try to get all key/vals from last update
-      val keyVals = store.fileReadKeyValues(store.fileHandles.firstEntry().getValue, store.validPos.get.offset, keySize = 32).toBuffer
+      val keyVals = store.fileReadKeyValues(store.fileHandles.firstEntry().getValue, store.getValidPos().offset, keySize = 32).toBuffer
       val toUpdate2 = keyVals.filterNot(_._2 eq tombstone).toMap
       val toRemove2 = keyVals.filter(_._2 eq tombstone).map(_._1).toSet
       assertEquals(toUpdate, toUpdate2)
@@ -171,7 +171,7 @@ class LogStoreTest extends StoreTest {
     update(2L)
     //insert compacted entry
     val eof = store.eof
-    val pos = store.validPos.get()
+    val pos = store.getValidPos()
     val compactedData = store.serializeUpdate(fromLong(3L), data = makeKeyVal(3L, 3L),
       isMerged = true, prevFileNumber = pos.fileNum, prevFileOffset = pos.offset)
     store.append(compactedData)
