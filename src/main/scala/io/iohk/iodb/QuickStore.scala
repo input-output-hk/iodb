@@ -263,7 +263,8 @@ class QuickStore(
       val updatesMap = mutable.HashMap[VersionID, QuickUpdate]()
       var lastUpdate: QuickUpdate = null
       deserializeAllUpdates { u =>
-        updatesMap.put(u.versionID, u)
+        if (!u.isRollbackMarker)
+          updatesMap.put(u.versionID, u)
         lastUpdate = u
       }
 

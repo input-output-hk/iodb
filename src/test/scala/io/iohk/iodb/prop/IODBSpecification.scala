@@ -44,7 +44,7 @@ class IODBSpecification extends PropSpec
 
   property("rollback test quick") {
     TestUtils.withTempDir { iFile =>
-      rollbackTest(blockStorage = new QuickStore(iFile))
+      rollbackTest(blockStorage = new QuickStore(iFile, keepVersions = 1000))
     }
   }
 
