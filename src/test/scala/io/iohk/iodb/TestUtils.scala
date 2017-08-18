@@ -105,4 +105,13 @@ object TestUtils {
     exec.awaitTermination(400, TimeUnit.DAYS)
   }
 
+
+  def withTempDir(ff: (File) => Unit) {
+    val iFile = TestUtils.tempDir()
+    try {
+      ff(iFile)
+    } finally {
+      TestUtils.deleteRecur(iFile)
+    }
+  }
 }

@@ -32,8 +32,7 @@ class ShardedStore(
     val shardPos = shardsFromDist.values.last
     val shard = shards.firstEntry().getValue
 
-    //FIXME filePos not used
-    return shard.get(key)
+    return shard.get(key = key, pos = shardPos)
   }
 
   override def getAll(consumer: (K, V) => Unit): Unit = {

@@ -385,6 +385,7 @@ class LogStore(
 
         eof = FilePos(fileNum = fileNum, offset = fout.size())
       }
+
       assert(fout.size() == eof.offset)
 
       val data2 = ByteBuffer.wrap(data)
@@ -414,7 +415,11 @@ class LogStore(
 
 
   def get(key: K): Option[V] = {
-    var filePos = getValidPos()
+    return get(key = key, pos = getValidPos())
+  }
+
+  def get(key: K, pos: FilePos): Option[V] = {
+    var filePos = pos
 
     while (filePos != null && filePos.offset >= 0) {
       val fileNum = filePos.fileNum

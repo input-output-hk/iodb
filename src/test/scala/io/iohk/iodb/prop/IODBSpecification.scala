@@ -17,24 +17,41 @@ class IODBSpecification extends PropSpec
   with Matchers
   with BeforeAndAfterAll {
 
-  val iFile = TestUtils.tempDir()
-  iFile.mkdirs()
 
-
-  property("rollback test LSM") {
-    rollbackTest(blockStorage = new ShardedStore(iFile))
+  property("rollback test Sharded") {
+    TestUtils.withTempDir { iFile =>
+      rollbackTest(blockStorage = new ShardedStore(iFile))
+    }
   }
 
-  property("writeKey test LSM") {
-    writeKeyTest(blockStorage = new ShardedStore(iFile))
+  property("writeKey test Sharded") {
+    TestUtils.withTempDir { iFile =>
+      writeKeyTest(blockStorage = new ShardedStore(iFile))
+    }
+  }
+
+  property("rollback test Log") {
+    TestUtils.withTempDir { iFile =>
+      rollbackTest(blockStorage = new LogStore(iFile))
+    }
+  }
+
+  property("writeKey test Log") {
+    TestUtils.withTempDir { iFile =>
+      writeKeyTest(blockStorage = new LogStore(iFile))
+    }
   }
 
   property("rollback test quick") {
-    rollbackTest(blockStorage = new QuickStore(iFile))
+    TestUtils.withTempDir { iFile =>
+      rollbackTest(blockStorage = new QuickStore(iFile))
+    }
   }
 
   property("writeKey test quick") {
-    writeKeyTest(blockStorage = new QuickStore(iFile))
+    TestUtils.withTempDir { iFile =>
+      writeKeyTest(blockStorage = new QuickStore(iFile))
+    }
   }
 
 
@@ -139,9 +156,6 @@ class IODBSpecification extends PropSpec
     ids.foreach(id => blockStorage.rollbackVersions().exists(_ == id) shouldBe true)
 
   }
-
-
-  override protected def afterAll(): Unit = TestUtils.deleteRecur(iFile)
 
 
   def hash(s: String) = ByteArrayWrapper(MessageDigest.getInstance("SHA-256").digest(s.getBytes))
