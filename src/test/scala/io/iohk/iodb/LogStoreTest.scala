@@ -103,8 +103,6 @@ class LogStoreTest extends StoreTest {
       val toRemove = (0 until 10).map(a => randomA(32)).toSet
       store.update(fromLong(i), toUpdate = toUpdate, toRemove = toRemove)
 
-      store.get(tombstone) //initialize fAccess handle
-
       //try to get all key/vals from last update
       val keyVals = store.fileReadKeyValues(store.fileHandles.firstEntry().getValue, store.getValidPos().offset, keySize = 32).toBuffer
       val toUpdate2 = keyVals.filterNot(_._2 eq tombstone).toMap

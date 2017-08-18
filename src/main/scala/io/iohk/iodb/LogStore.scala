@@ -184,7 +184,7 @@ class LogStore(
     var valueOffset = out.size() + data.size * 8 + versionID.size
     data.foreach { t =>
       val value = t._2
-      if (value == Store.tombstone) {
+      if (value eq Store.tombstone) {
         //tombstone
         out2.writeInt(-1)
         out2.writeInt(0)
@@ -627,7 +627,7 @@ class LogStore(
         include
       }
       //drop tombstones
-      .filter(it => !dropTombstones || it._3 != Store.tombstone)
+      .filter(it => !dropTombstones || !(it._3 eq Store.tombstone))
       //remove update
       .map(it => (it._1, it._3))
 

@@ -21,6 +21,7 @@ class ShardedStore(
 
 
   override def get(key: K): Option[V] = {
+    assert(key.size > 7)
     val v = journal.getDistribute(key)
     if (v._1.isDefined)
       return v._1 //value was found in journal
@@ -40,7 +41,7 @@ class ShardedStore(
   }
 
   override def clean(count: Int): Unit = {
-    //TODO
+    //TODO cleanup
   }
 
   override def lastVersionID: Option[VersionID] = {
