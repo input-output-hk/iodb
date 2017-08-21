@@ -204,11 +204,10 @@ public class Utils {
     static void readFully(FileChannel channel, long offset, ByteBuffer buf) throws IOException {
         int remaining = buf.limit() - buf.position();
 
-        long csize = channel.size();
         while (remaining > 0) {
             int read = channel.read(buf, offset);
             if (read < 0)
-                throw new EOFException(channel.size() + " - " + csize + " - " + offset);
+                throw new EOFException();
             remaining -= read;
         }
     }
