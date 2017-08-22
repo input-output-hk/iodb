@@ -24,7 +24,6 @@ abstract class StoreTest extends TestWithTempDir{
     store = open()
 
     check()
-
   }
 }
 

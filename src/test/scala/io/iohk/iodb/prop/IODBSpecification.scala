@@ -19,6 +19,14 @@ class IODBSpecification extends PropSpec
   val iFile = TestUtils.tempDir()
   iFile.mkdirs()
 
+  property("starting with empty lastVersionId") {
+    (1 to 10) foreach { _ =>
+      val dir = TestUtils.tempDir()
+      dir.mkdir()
+      new LSMStore(dir).lastVersionID shouldBe None
+    }
+  }
+
 
   property("rollback test LSM") {
     rollbackTest(blockStorage = new LSMStore(iFile))
@@ -32,6 +40,12 @@ class IODBSpecification extends PropSpec
     doubleRollbackTest(blockStorage = new LSMStore(iFile))
   }
 
+  property("empty update rollback versions test LSM") {
+    val file = TestUtils.tempDir()
+    file.mkdirs()
+    emptyUpdateRollbackVersions(blockStorage = new LSMStore(file))
+  }
+
   property("rollback test quick") {
     rollbackTest(blockStorage = new QuickStore(iFile))
   }
@@ -42,6 +56,24 @@ class IODBSpecification extends PropSpec
 
   property("doubleRollbackTest test quick") {
     doubleRollbackTest(blockStorage = new QuickStore(iFile))
+  }
+
+  property("empty update rollback versions test quick") {
+    val file = TestUtils.tempDir()
+    file.mkdirs()
+    emptyUpdateRollbackVersions(blockStorage = new QuickStore(file))
+  }
+
+  def emptyUpdateRollbackVersions(blockStorage: Store): Unit = {
+    blockStorage.rollbackVersions().size shouldBe 0
+
+    val version1 = ByteArrayWrapper("version1".getBytes)
+    blockStorage.update(version1, Seq(), Seq())
+    blockStorage.rollbackVersions().size shouldBe 1
+
+    val version2 = ByteArrayWrapper("version2".getBytes)
+    blockStorage.update(version2, Seq(), Seq())
+    blockStorage.rollbackVersions().size shouldBe 2
   }
 
   /**
