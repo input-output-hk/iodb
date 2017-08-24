@@ -58,6 +58,13 @@ class IODBSpecification extends PropSpec
     doubleRollbackTest(blockStorage = new QuickStore(iFile))
   }
 
+  property("quick stores lastVersionId should be None right after creation") {
+    val file = TestUtils.tempDir()
+    file.mkdirs()
+    file.deleteOnExit()
+    new QuickStore(file).lastVersionID shouldBe None
+  }
+
   property("empty update rollback versions test quick") {
     val file = TestUtils.tempDir()
     file.mkdirs()
