@@ -25,7 +25,7 @@ class QuickStore(
 
   protected val path = new File(dir, filePrefix + "-1").toPath
 
-  protected var versionID: Option[VersionID] = Some(Store.tombstone)
+  protected var versionID: VersionID = Store.tombstone
 
   {
     if (!path.toFile.exists())
@@ -54,7 +54,7 @@ class QuickStore(
         else lastUpdate.prevVersionID
     }
 
-    versionID = Some(seq.map(_.versionID).headOption.getOrElse(Store.tombstone))
+    versionID = seq.map(_.versionID).headOption.getOrElse(Store.tombstone)
 
     //replay updates to get current map
     replayChanges(seq.reverse) { (c: QuickChange, u: QuickUpdate) =>
@@ -103,9 +103,9 @@ class QuickStore(
     lock.writeLock().lock()
     try {
 
-      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID.get, isRollbackMarker = false, changes = changes)
+      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID, isRollbackMarker = false, changes = changes)
 
-      this.versionID = Some(versionID)
+      this.versionID = versionID
       val fout = Files.newOutputStream(path,
         StandardOpenOption.APPEND, StandardOpenOption.WRITE,
         StandardOpenOption.DSYNC)
@@ -251,7 +251,11 @@ class QuickStore(
   override def lastVersionID: Option[VersionID] = {
     lock.readLock().lock()
     try {
-      versionID
+      val versionID2 = versionID
+      return (
+        if ((versionID2 eq null) || (versionID2 eq Store.tombstone)) None
+        else Some(versionID2)
+        )
     } finally {
       lock.readLock().unlock()
     }
@@ -283,7 +287,7 @@ class QuickStore(
           throw new DataCorruptionException("rollback over too many versions, most likely cyclic ref")
       }
 
-      this.versionID = Some(versionID)
+      this.versionID = versionID
 
       //replay in reverse order (insert old values)
       replayChanges(updates) { (c: QuickChange, u: QuickUpdate) =>
@@ -293,9 +297,9 @@ class QuickStore(
           keyvals.put(c.key, c.oldValue)
       }
 
-      //update file to mark roolback
+      //update file to mark rollback
 
-      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID.get,
+      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID,
         isRollbackMarker = true, changes = Nil)
 
       val fout = Files.newOutputStream(path,

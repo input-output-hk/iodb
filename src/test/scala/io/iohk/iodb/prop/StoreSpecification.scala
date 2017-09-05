@@ -24,7 +24,6 @@ class StoreSpecification extends JUnitSuite with Checkers with BeforeAndAfterAll
 
   //todo: pass initial set size? for now the set is only about 1 element
 
-  @org.junit.Ignore
   @Test
   def testLsm(): Unit = {
     check(new LSMCommands(maxJournalEntryCount = 1000, keepVersion = 1500).property(), params)

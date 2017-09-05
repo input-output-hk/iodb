@@ -34,6 +34,14 @@ abstract class StoreTest extends TestWithTempDir {
     store.close()
   }
 
+  @Test def none_last_versionID(): Unit = {
+    var s = open()
+    assert(s.lastVersionID == None)
+    s.close()
+    s = open()
+    assert(s.lastVersionID == None)
+    s.close()
+  }
 
   @Test def get() {
     val store = open(keySize = 32)
