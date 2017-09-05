@@ -25,7 +25,7 @@ class QuickStore(
 
   protected val path = new File(dir, filePrefix + "-1").toPath
 
-  protected var versionID = Some(Store.tombstone)
+  protected var versionID: VersionID = Store.tombstone
 
   {
     if (!path.toFile.exists())
@@ -101,9 +101,9 @@ class QuickStore(
     lock.writeLock().lock()
     try {
 
-      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID.get, changes = changes)
+      val binaryUpdate = serializeUpdate(versionID = versionID, prevVersionID = this.versionID, changes = changes)
 
-      this.versionID = Some(versionID)
+      this.versionID = versionID
       val fout = Files.newOutputStream(path,
         StandardOpenOption.APPEND, StandardOpenOption.WRITE,
         StandardOpenOption.DSYNC)
@@ -244,7 +244,9 @@ class QuickStore(
   override def lastVersionID: Option[VersionID] = {
     lock.readLock().lock()
     try {
-      versionID
+      val versionID2 = versionID
+      return if ((versionID2 eq null) || (versionID2 eq Store.tombstone)) None
+      else Some(versionID2)
     } finally {
       lock.readLock().unlock()
     }
@@ -274,7 +276,7 @@ class QuickStore(
           throw new DataCorruptionException("rollback over too many versions, most likely cyclic ref")
       }
 
-      this.versionID = Some(versionID)
+      this.versionID = versionID
 
       //replay in reverse order (insert old values)
       replayChanges(updates) { (c: QuickChange, u: QuickUpdate) =>

@@ -1,8 +1,7 @@
 package io.iohk.iodb.unit
 
-import io.iohk.iodb.{QuickStore, Store, TestWithTempDir}
-
 import io.iohk.iodb.TestUtils._
+import io.iohk.iodb.{QuickStore, Store, TestWithTempDir}
 
 abstract class StoreTest extends TestWithTempDir{
 
@@ -12,6 +11,7 @@ abstract class StoreTest extends TestWithTempDir{
   def testReopen(): Unit = {
 
     var store = open()
+    assert(store.lastVersionID == None)
     store.update(fromLong(1L), toUpdate = (1L to 100L).map(i=>(fromLong(i), fromLong(i))), toRemove=Nil)
     store.update(fromLong(2L), toUpdate = Nil, toRemove = (90L to 100L).map(fromLong))
 
