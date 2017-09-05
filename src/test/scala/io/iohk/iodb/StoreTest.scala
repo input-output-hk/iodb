@@ -1,5 +1,6 @@
 package io.iohk.iodb
 
+import java.security.MessageDigest
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 
 import io.iohk.iodb.Store.{K, V}
@@ -255,5 +256,40 @@ abstract class StoreTest extends TestWithTempDir {
 
     assert(threadCount + 1 == finishedTaskCounter.get())
   }
+
+
+  @Test def `quick store's lastVersionId should be None right after creation` {
+    assert(open().lastVersionID == None)
+  }
+
+  @Test def `empty update rollback versions test quick` {
+    emptyUpdateRollbackVersions(blockStorage = open())
+  }
+
+
+  def emptyUpdateRollbackVersions(blockStorage: Store): Unit = {
+    assert(blockStorage.rollbackVersions().size == 0)
+
+    val version1 = ByteArrayWrapper("version1".getBytes)
+    blockStorage.update(version1, Seq(), Seq())
+    assert(blockStorage.rollbackVersions().size == 1)
+
+    val version2 = ByteArrayWrapper("version2".getBytes)
+    blockStorage.update(version2, Seq(), Seq())
+    assert(blockStorage.rollbackVersions().size == 2)
+  }
+
+  case class BlockChanges(id: ByteArrayWrapper,
+                          toRemove: Seq[ByteArrayWrapper],
+                          toInsert: Seq[(ByteArrayWrapper, ByteArrayWrapper)])
+
+  def hash(b: Array[Byte]): Array[Byte] = MessageDigest.getInstance("SHA-256").digest(b)
+
+  def randomBytes(): ByteArrayWrapper = ByteArrayWrapper(hash(Random.nextString(16).getBytes))
+
+  def generateBytes(howMany: Int): Seq[(ByteArrayWrapper, ByteArrayWrapper)] = {
+    (0 until howMany).map(i => (randomBytes(), randomBytes()))
+  }
+
 
 }

@@ -55,45 +55,6 @@ class IODBSpecification extends PropSpec
     }
   }
 
-  property("quick store's lastVersionId should be None right after creation") {
-    TestUtils.withTempDir { iFile =>
-      new QuickStore(iFile).lastVersionID shouldBe None
-    }
-  }
-
-  property("empty update rollback versions test quick") {
-    TestUtils.withTempDir { iFile =>
-      emptyUpdateRollbackVersions(blockStorage = new QuickStore(iFile))
-    }
-  }
-
-  def emptyUpdateRollbackVersions(blockStorage: Store): Unit = {
-    blockStorage.rollbackVersions().size shouldBe 0
-
-    val version1 = ByteArrayWrapper("version1".getBytes)
-    blockStorage.update(version1, Seq(), Seq())
-    blockStorage.rollbackVersions().size shouldBe 1
-
-    val version2 = ByteArrayWrapper("version2".getBytes)
-    blockStorage.update(version2, Seq(), Seq())
-    blockStorage.rollbackVersions().size shouldBe 2
-  }
-
-  /**
-    * double rollback to the same id
-    */
-  def doubleRollbackTest(blockStorage: Store): Unit = {
-    val data = generateBytes(100)
-    val block1 = BlockChanges(data.head._1, Seq(), data.take(50))
-    val block2 = BlockChanges(data(51)._1, data.map(_._1).take(20), data.slice(51, 61))
-    val block3 = BlockChanges(data(61)._1, data.map(_._1).slice(20, 30), data.slice(61, 71))
-    blockStorage.update(block1.id, block1.toRemove, block1.toInsert)
-    blockStorage.update(block2.id, block2.toRemove, block2.toInsert)
-    blockStorage.rollback(block1.id)
-    blockStorage.update(block3.id, block3.toRemove, block3.toInsert)
-    blockStorage.rollback(block1.id)
-  }
-
 
   def rollbackTest(blockStorage:Store){
     //initialize test
