@@ -93,9 +93,16 @@ class IODBSpecification extends PropSpec
     val block3 = BlockChanges(data(61)._1, data.map(_._1).slice(20, 30), data.slice(61, 71))
     blockStorage.update(block1.id, block1.toRemove, block1.toInsert)
     blockStorage.update(block2.id, block2.toRemove, block2.toInsert)
+    blockStorage.get(block2.id) shouldBe Some(data(51)._2)
     blockStorage.rollback(block1.id)
+    blockStorage.get(block1.id) shouldBe Some(data.head._2)
+    blockStorage.get(block2.id) shouldBe None
     blockStorage.update(block3.id, block3.toRemove, block3.toInsert)
+    blockStorage.get(block3.id) shouldBe Some(data(61)._2)
     blockStorage.rollback(block1.id)
+    blockStorage.get(block1.id) shouldBe Some(data.head._2)
+    blockStorage.get(block2.id) shouldBe None
+    blockStorage.get(block3.id) shouldBe None
   }
 
 
