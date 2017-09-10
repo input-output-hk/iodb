@@ -269,6 +269,7 @@ class QuickStore(
       val updates = new ArrayBuffer[QuickUpdate]()
       var counter = 0L
       while (lastUpdate.versionID != versionID) {
+        updates+=lastUpdate
         lastUpdate = updatesMap(lastUpdate.prevVersionID)
         //cyclic ref protection
         counter += 1
