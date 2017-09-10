@@ -10,6 +10,7 @@ import org.junit.Test
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.util.Random
+import org.scalatest.Matchers._
 
 class LogStoreTest extends StoreTest {
 
@@ -226,6 +227,38 @@ class LogStoreTest extends StoreTest {
       store.update(versionID = b, toRemove = Nil, toUpdate = List((b, b)))
       assert(i + 1 == store.loadUpdateOffsets(stopAtMerge = true).size)
     }
+    store.close()
   }
 
+  @Test def file_handle_leaks(): Unit = {
+    val store = open(keySize = 8)
+    for (i <- 1 to 10) {
+      val b = fromLong(i)
+      store.update(versionID = b, toRemove = Nil, toUpdate = List((b, b)))
+    }
+
+    store.fileSemaphore shouldBe empty
+
+    for (i <- 1 to 10) {
+      val b = fromLong(i)
+      store.get(b) shouldBe Some(b)
+    }
+    store.fileSemaphore shouldBe empty
+
+    store.loadUpdateOffsets(stopAtMerge = true)
+    store.fileSemaphore shouldBe empty
+
+    store.getAll { (k, v) =>
+    }
+    store.fileSemaphore shouldBe empty
+
+    store.compact()
+    store.fileSemaphore shouldBe empty
+
+    store.clean(1)
+    store.fileSemaphore shouldBe empty
+
+    store.close()
+    store.fileSemaphore shouldBe empty
+  }
 }

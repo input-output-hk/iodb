@@ -8,8 +8,7 @@ import org.scalatest.{BeforeAndAfterAll, Matchers, PropSpec}
 
 import scala.annotation.tailrec
 import scala.util.Random
-
-@org.junit.Ignore
+x
 @org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class IODBSpecification extends PropSpec
   with PropertyChecks

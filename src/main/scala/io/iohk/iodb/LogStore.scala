@@ -215,17 +215,21 @@ class LogStore(
     //produce sorted and merged data set
     val data = new mutable.TreeMap[K, V]()
     for (key <- toRemove) {
+      assert(key.size == keySize)
       val old = data.put(key, Store.tombstone)
       if (old.isDefined)
         throw new IllegalArgumentException("duplicate key in `toRemove`")
     }
     for ((key, value) <- toUpdate) {
+      assert(key.size == keySize)
       val old = data.put(key, value)
       if (old.isDefined)
         throw new IllegalArgumentException("duplicate key in `toUpdate`")
     }
-
     updateDistribute(versionID = versionID, data = data, triggerCompaction = true)
+
+    //TODO background operations
+    taskFileDeleteScheduled()
   }
 
   def updateDistribute(versionID: VersionID, data: Iterable[(K, V)], triggerCompaction: Boolean): FilePos = {
@@ -551,10 +555,11 @@ class LogStore(
       val fileNum = filePos.fileNum
 
       val fileHandle = fileLock(fileNum)
-      if (fileHandle == null || fileHandle.size() <= filePos.offset) {
-        return offsets
-      }
       try {
+        if (fileHandle == null || fileHandle.size() <= filePos.offset) {
+          return offsets
+        }
+
         val header = fileReadByte(fileHandle, filePos.offset + 4)
 
         offsets += LogEntryPos(filePos, header)
@@ -567,6 +572,7 @@ class LogStore(
         //move to previous update
         filePos = if (fileHandle == null || shouldStop) null else loadPrevFilePos(fileHandle, filePos.offset)
       } finally {
+        if(fileHandle!=null)
           fileUnlock(fileNum)
       }
     }
@@ -591,7 +597,6 @@ class LogStore(
       fileReadData(fileHandle, versionIDOffset, ret.data)
       return ret
     } finally {
-
       if (fileHandle != null)
         fileUnlock(fileNum)
     }
@@ -643,7 +648,7 @@ class LogStore(
         return
 
       //lock all files for reading
-      val files = offsets.map(o => (o.pos.fileNum, fileLock(o.pos.fileNum))).toMap
+      val files:Map[FileNum, FileChannel] = offsets.map(o=> o.pos.fileNum).toSet.map{n:FileNum => (n, fileLock(n))}.toMap
       try {
         val keyVals = loadKeyValues(offsets, files, dropTombstones = true).toBuffer //TODO serialize keys lazily, without loading entire chunk to memory
         //load versionID for newest offset
@@ -670,6 +675,8 @@ class LogStore(
       appendLock.unlock()
     }
 
+    //TODO background operations
+    taskFileDeleteScheduled()
   }
 
   override def getAll(consumer: (K, V) => Unit): Unit = {
@@ -677,7 +684,7 @@ class LogStore(
     if (offsets.size <= 1)
       return
     //lock files for reading
-    val files = offsets.map(o => (o.pos.fileNum, fileLock(o.pos.fileNum))).toMap
+    val files:Map[FileNum, FileChannel] = offsets.map(o=> o.pos.fileNum).toSet.map{fileNum:FileNum => (fileNum, fileLock(fileNum))}.toMap
     try {
 
       val keyVals = loadKeyValues(offsets, files, dropTombstones = true)
@@ -757,6 +764,9 @@ class LogStore(
     } finally {
       appendLock.unlock()
     }
+
+    //TODO background operations
+    taskFileDeleteScheduled()
   }
 
   override def verify(): Unit = {
@@ -822,7 +832,7 @@ class LogStore(
         if (!fileSemaphore.containsKey(fileNum)) {
           fileClose(handle)
           fileNumToFile(fileNum).delete()
-          fileToDelete.remove(fileNum)
+          fileToDelete.remove(fileNum) //TODO delete outside file lock
         }
       }
     } finally {
@@ -850,6 +860,7 @@ class LogStore(
 
   def fileGetValue(c: FileChannel, key: K, keySize: Int, updateOffset: Long): Option[V] = {
     assert(updateOffset >= 0, "negative updateOffset: " + updateOffset)
+    assert(key.size == keySize)
     val tempBuf = ByteBuffer.allocate(8)
 
     val keyCount: Long = fileReadInt(c, updateOffset + LogStore.updateKeyCountOffset, tempBuf)

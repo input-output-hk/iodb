@@ -72,6 +72,22 @@ abstract class StoreTest extends TestWithTempDir {
     store.close()
   }
 
+
+  @Test def getMulti(): Unit = {
+    val store = open(keySize = 8)
+    for (i <- 1 to 1000) {
+      val b = fromLong(i)
+      store.update(versionID = b, toRemove = Nil, toUpdate = List((b, b)))
+    }
+
+    for (i <- 1 to 1000) {
+      val b = fromLong(i)
+      store.get(b) shouldBe Some(b)
+    }
+    store.close()
+  }
+
+
   @Test def get_getAll(): Unit = {
     val store = open(keySize = 8)
 
@@ -219,8 +235,6 @@ abstract class StoreTest extends TestWithTempDir {
     val threadCount = 1
     val duration = 100 * 1000; // in milliseconds
 
-    val finishedTaskCounter = new AtomicInteger(0)
-
     val exec = new ForkExecutor(duration)
     val store: Store = open(keySize = 8)
 
@@ -240,7 +254,6 @@ abstract class StoreTest extends TestWithTempDir {
           counter += 1
         }
       }
-      finishedTaskCounter.incrementAndGet()
     }
     //start cleanup thread
     exec.execute {
@@ -250,13 +263,10 @@ abstract class StoreTest extends TestWithTempDir {
           store.asInstanceOf[ShardedStore].distribute()
         }
       }
-      finishedTaskCounter.incrementAndGet()
     }
 
     exec.finish()
     store.close()
-
-    assert(threadCount + 1 == finishedTaskCounter.get())
   }
 
 
