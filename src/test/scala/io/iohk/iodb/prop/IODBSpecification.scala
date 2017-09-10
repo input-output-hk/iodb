@@ -46,6 +46,12 @@ class IODBSpecification extends PropSpec
     emptyUpdateRollbackVersions(blockStorage = new LSMStore(file))
   }
 
+  property("consistent data after rollbacks test LSM") {
+    val file = TestUtils.tempDir()
+    file.mkdirs()
+    dataAfterRollbackTest(blockStorage = new LSMStore(file))
+  }
+
   property("rollback test quick") {
     rollbackTest(blockStorage = new QuickStore(iFile))
   }
@@ -71,6 +77,12 @@ class IODBSpecification extends PropSpec
     emptyUpdateRollbackVersions(blockStorage = new QuickStore(file))
   }
 
+  property("consistent data after rollbacks test quick") {
+    val file = TestUtils.tempDir()
+    file.mkdirs()
+    dataAfterRollbackTest(blockStorage = new QuickStore(file))
+  }
+
   def emptyUpdateRollbackVersions(blockStorage: Store): Unit = {
     blockStorage.rollbackVersions().size shouldBe 0
 
@@ -93,9 +105,76 @@ class IODBSpecification extends PropSpec
     val block3 = BlockChanges(data(61)._1, data.map(_._1).slice(20, 30), data.slice(61, 71))
     blockStorage.update(block1.id, block1.toRemove, block1.toInsert)
     blockStorage.update(block2.id, block2.toRemove, block2.toInsert)
+    blockStorage.get(block2.id) shouldBe Some(data(51)._2)
     blockStorage.rollback(block1.id)
+    blockStorage.get(block1.id) shouldBe Some(data.head._2)
+    blockStorage.get(block2.id) shouldBe None
     blockStorage.update(block3.id, block3.toRemove, block3.toInsert)
+    blockStorage.get(block3.id) shouldBe Some(data(61)._2)
     blockStorage.rollback(block1.id)
+    blockStorage.get(block1.id) shouldBe Some(data.head._2)
+    blockStorage.get(block2.id) shouldBe None
+    blockStorage.get(block3.id) shouldBe None
+  }
+
+  /**
+    * check data is consistent after some rollbacks
+    */
+
+  def dataAfterRollbackTest(blockStorage: Store): Unit = {
+
+    val data1 = generateBytes(20)
+    val data2 = generateBytes(20)
+    val data3 = generateBytes(20)
+
+    val block1 = BlockChanges(data1.head._1, Seq(), data1)
+    val block2 = BlockChanges(data2.head._1, Seq(), data2)
+    val block3 = BlockChanges(data3.head._1, Seq(), data3)
+
+    blockStorage.update(block1.id, block1.toRemove, block1.toInsert)
+    blockStorage.update(block2.id, block2.toRemove, block2.toInsert)
+    blockStorage.update(block3.id, block3.toRemove, block3.toInsert)
+
+    blockStorage.lastVersionID shouldBe Some(block3.id)
+
+    def checkBlockExists(block: BlockChanges): Unit = block.toInsert.foreach{ case (k , v) =>
+      val valueOpt = blockStorage.get(k)
+      valueOpt shouldBe defined
+      valueOpt.contains(v) shouldEqual true
+    }
+
+    def checkBlockNotExists(block: BlockChanges): Unit = block.toInsert.foreach{ case (k , _) =>
+      blockStorage.get(k) shouldBe None
+    }
+
+    checkBlockExists(block1)
+    checkBlockExists(block2)
+    checkBlockExists(block3)
+
+    blockStorage.rollback(block2.id)
+
+    checkBlockExists(block1)
+    checkBlockExists(block2)
+    checkBlockNotExists(block3)
+
+    blockStorage.update(block3.id, block3.toRemove, block3.toInsert)
+
+    checkBlockExists(block1)
+    checkBlockExists(block2)
+    checkBlockExists(block3)
+
+    blockStorage.rollback(block1.id)
+
+    checkBlockExists(block1)
+    checkBlockNotExists(block2)
+    checkBlockNotExists(block3)
+
+    blockStorage.update(block2.id, block2.toRemove, block2.toInsert)
+    blockStorage.update(block3.id, block3.toRemove, block3.toInsert)
+
+    checkBlockExists(block1)
+    checkBlockExists(block2)
+    checkBlockExists(block3)
   }
 
 
