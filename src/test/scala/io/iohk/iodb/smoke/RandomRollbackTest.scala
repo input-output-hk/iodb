@@ -2,8 +2,8 @@ package io.iohk.iodb.smoke
 
 import io.iohk.iodb.Store._
 import io.iohk.iodb.TestUtils._
-import io.iohk.iodb.{ByteArrayWrapper, ShardedStore}
-import org.junit.Test
+import io.iohk.iodb.{ByteArrayWrapper, Store}
+import org.scalatest.Matchers._
 
 import scala.collection.mutable
 import scala.util.Random
@@ -11,7 +11,7 @@ import scala.util.Random
 /**
   * Randomly inserts data and performs rollback
   */
-class RandomRollbackTest {
+object RandomRollbackTest {
 
   val randomSeed = 111
   val loops = 100
@@ -21,10 +21,8 @@ class RandomRollbackTest {
 
   val maxInsertBatchSize = 200
 
-  @org.junit.Ignore
-  @Test def main(): Unit = {
+  def test(store:Store): Unit = {
 
-    val dir = tempDir()
     val r = new Random(randomSeed)
 
     def randomBuf: ByteArrayWrapper = {
@@ -38,7 +36,6 @@ class RandomRollbackTest {
     var removed = Set[K]()
     var version = 1L
 
-    val store = new ShardedStore(dir = dir)
     //    , keepVersions = keepVersions)
     //      maxJournalEntryCount = 1000, splitSize = 1000, maxFileSize = 64000, executor = null)
 
@@ -57,7 +54,6 @@ class RandomRollbackTest {
       } else if (a < 6 && history.size > 4) {
         //perform cleanup
         store.clean(keepVersions)
-
       } else {
         //insert data
         val toUpdate =
@@ -102,15 +98,14 @@ class RandomRollbackTest {
       val versionsFromStore = store.rollbackVersions().toBuffer.sorted.takeRight(history.size)
       val versionsFromHistory = history.keySet.map(fromLong(_)).toBuffer
 
-      assert(versionsFromHistory == versionsFromStore)
+      versionsFromStore shouldBe versionsFromHistory
 
       val getAll = store.getAll()
       val b1 = getAll.toBuffer.sortBy[ByteArrayWrapper](_._1).toBuffer
       val b2 = inserted.toBuffer.sortBy[ByteArrayWrapper](_._1).toBuffer
-      assert(b1 == b2)
+      b1 shouldBe b2
 
     }
-    deleteRecur(dir)
   }
 
 }

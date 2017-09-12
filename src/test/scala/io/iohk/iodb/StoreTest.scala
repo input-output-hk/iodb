@@ -12,6 +12,7 @@ import scala.collection.mutable
 import scala.util.Random
 import org.scalatest._
 import Matchers._
+import io.iohk.iodb.smoke.RandomRollbackTest
 
 abstract class StoreTest extends TestWithTempDir {
 
@@ -367,23 +368,39 @@ abstract class StoreTest extends TestWithTempDir {
 
 
   @Test def doubleRollbackTest: Unit ={
-    val blockStorage = open()
+    val s = open()
     val data = generateBytes(100)
     val block1 = BlockChanges(data.head._1, Seq(), data.take(50))
     val block2 = BlockChanges(data(51)._1, data.map(_._1).take(20), data.slice(51, 61))
     val block3 = BlockChanges(data(61)._1, data.map(_._1).slice(20, 30), data.slice(61, 71))
-    blockStorage.update(block1.id, block1.toRemove, block1.toInsert)
-    blockStorage.update(block2.id, block2.toRemove, block2.toInsert)
-    blockStorage.get(block2.id) shouldBe Some(data(51)._2)
-    blockStorage.rollback(block1.id)
-    blockStorage.get(block1.id) shouldBe Some(data.head._2)
-    blockStorage.get(block2.id) shouldBe None
-    blockStorage.update(block3.id, block3.toRemove, block3.toInsert)
-    blockStorage.get(block3.id) shouldBe Some(data(61)._2)
-    blockStorage.rollback(block1.id)
-    blockStorage.get(block1.id) shouldBe Some(data.head._2)
-    blockStorage.get(block2.id) shouldBe None
-    blockStorage.get(block3.id) shouldBe None
+    s.update(block1.id, block1.toRemove, block1.toInsert)
+    s.update(block2.id, block2.toRemove, block2.toInsert)
+    s.get(block2.id) shouldBe Some(data(51)._2)
+    s.rollbackVersions() shouldBe List(block1.id, block2.id)
+    s.lastVersionID.get shouldBe block2.id
+    s.rollback(block1.id)
+    s.get(block1.id) shouldBe Some(data.head._2)
+    s.get(block2.id) shouldBe None
+
+    s.lastVersionID.get shouldBe block1.id
+    s.rollbackVersions() shouldBe List(block1.id)
+
+    s.update(block3.id, block3.toRemove, block3.toInsert)
+    s.get(block3.id) shouldBe Some(data(61)._2)
+    s.lastVersionID.get shouldBe block3.id
+    s.rollbackVersions() shouldBe List(block1.id, block3.id)
+
+    s.rollback(block1.id)
+    s.get(block1.id) shouldBe Some(data.head._2)
+    s.get(block2.id) shouldBe None
+    s.get(block3.id) shouldBe None
+    s.lastVersionID.get shouldBe block1.id
+    s.rollbackVersions() shouldBe List(block1.id)
+
+  }
+
+  @Test def test_random_rollback(): Unit ={
+    RandomRollbackTest.test(open())
   }
 
 }

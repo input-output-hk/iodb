@@ -275,6 +275,13 @@ class QuickStore(
       if (!updatesMap.contains(versionID) || lastUpdate == null)
         throw new IllegalArgumentException("VersionID not found")
 
+
+      //replace rollback marker, if is here
+      if(lastUpdate!=null)
+        lastUpdate = updatesMap.getOrElse(lastUpdate.versionID, lastUpdate)
+
+
+      //TODO check for duplicate links?
       //create linked list of updates
       val updates = new ArrayBuffer[QuickUpdate]()
       var counter = 0L
@@ -324,11 +331,31 @@ class QuickStore(
   override def rollbackVersions(): Iterable[VersionID] = {
     lock.readLock().lock()
     try {
-      val v = new ArrayBuffer[VersionID]()
+      val updatesMap = mutable.HashMap[VersionID, QuickUpdate]()
+      var lastUpdate: QuickUpdate = null
       deserializeAllUpdates { u =>
-        v += u.versionID
+        if (!u.isRollbackMarker)
+          updatesMap.put(u.versionID, u)
+        lastUpdate = u
       }
-      return v
+
+      //replace rollback marker, if is here
+      if(lastUpdate!=null)
+        lastUpdate = updatesMap.getOrElse(lastUpdate.versionID, lastUpdate)
+
+      //create linked list of updates
+      val updates = new ArrayBuffer[QuickUpdate]()
+      var counter = 0L
+      while (lastUpdate != null) {
+        updates += lastUpdate
+        lastUpdate = updatesMap.getOrElse(lastUpdate.prevVersionID, null)
+        //cyclic ref protection
+        counter += 1
+        if (counter > 1e7)
+          throw new DataCorruptionException("rollback over too many versions, most likely cyclic ref")
+      }
+
+      return updates.map(_.versionID).reverse
     } finally {
       lock.readLock().unlock()
     }
