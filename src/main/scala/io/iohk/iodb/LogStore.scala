@@ -681,7 +681,7 @@ class LogStore(
 
   override def getAll(consumer: (K, V) => Unit): Unit = {
     val offsets = loadUpdateOffsets(stopAtMerge = true)
-    if (offsets.size <= 1)
+    if (offsets.size <= 0)
       return
     //lock files for reading
     val files:Map[FileNum, FileChannel] = offsets.map(o=> o.pos.fileNum).toSet.map{fileNum:FileNum => (fileNum, fileLock(fileNum))}.toMap
