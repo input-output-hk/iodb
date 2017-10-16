@@ -88,11 +88,11 @@ class IODBSpecification extends PropSpec
 
     val version1 = ByteArrayWrapper("version1".getBytes)
     blockStorage.update(version1, Seq(), Seq())
-    blockStorage.rollbackVersions().size shouldBe 1
+    blockStorage.rollbackVersions() should contain theSameElementsAs Seq(version1)
 
     val version2 = ByteArrayWrapper("version2".getBytes)
     blockStorage.update(version2, Seq(), Seq())
-    blockStorage.rollbackVersions().size shouldBe 2
+    blockStorage.rollbackVersions() should contain theSameElementsAs Seq(version1, version2)
   }
 
   /**
