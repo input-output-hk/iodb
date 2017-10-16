@@ -1,5 +1,7 @@
 package io.iohk.iodb
 
+import java.util.logging.Level
+
 import scala.collection.mutable
 
 object Store {
@@ -172,5 +174,19 @@ trait Store {
     * This method may run for very long time, depending on store size.
     */
   def verify(): Unit
+
+
+
+
+  def runnable(f: => Unit): Runnable =
+    return () => {
+      try {
+        f
+      } catch {
+        case e: Throwable => {
+          Utils.LOG.log(Level.SEVERE, "Background task failed", e)
+        }
+      }
+    }
 
 }

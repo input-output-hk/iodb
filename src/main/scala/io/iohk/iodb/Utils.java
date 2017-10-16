@@ -1,15 +1,20 @@
 package io.iohk.iodb;
 
-import net.jpountz.xxhash.*;
+import net.jpountz.xxhash.XXHash64;
+import net.jpountz.xxhash.XXHashFactory;
 import sun.misc.Cleaner;
 import sun.nio.ch.DirectBuffer;
 
-import java.io.*;
-import java.nio.*;
+import java.io.EOFException;
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentMap;
-import java.util.logging.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Java utilities
@@ -286,8 +291,21 @@ public class Utils {
                 return value - 1L;
             }
         });
-
     }
 
+    public static byte[] shardPrefix(int shardCount, int shardNum, int keySize) {
+        assert (shardCount > shardNum);
+        assert (shardCount > 0);
+        assert (shardNum >= 0);
+        assert (keySize >= 4);
+        long d = (0xFFFFFFL * shardNum) / shardCount;
+        assert (d < 0xFFFFFFL + 1);
+
+        int d2 = (int) (d << 8);
+        byte[] ret = new byte[keySize];
+        putInt(ret, 0, d2);
+
+        return ret;
+    }
 
 }

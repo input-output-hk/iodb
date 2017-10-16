@@ -33,7 +33,7 @@ object CompactionBench {
 
 
     while (System.currentTimeMillis() < endTime) {
-      store.compact()
+      store.taskCompact()
       store.clean(0)
       compactionCounter += 1
     }

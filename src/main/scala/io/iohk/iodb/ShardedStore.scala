@@ -1,24 +1,37 @@
 package io.iohk.iodb
 
 import java.io.{File, PrintStream, RandomAccessFile}
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.{Executor, Executors}
 
 import com.google.common.base.Strings
 import com.google.common.io.Closeables
 import io.iohk.iodb.Store.{K, V, VersionID}
 
+import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
+
 class ShardedStore(
                     val dir: File,
                     val keySize: Int = 32,
-                    val shardCount: Int = 1)
-  extends Store {
+                    val shardCount: Int = 1,
+                    val executor:Executor = Executors.newCachedThreadPool()
+                  )extends Store {
 
-  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal")
+  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal", executor=executor)
 
-  val shard1 = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard1")
 
   val shards = new java.util.TreeMap[K, LogStore]()
-  shards.put(new K(new Array[Byte](keySize)), shard1)
 
+  //initialize shards
+  assert(shardCount > 0)
+  for (i <- 0 until shardCount) {
+    val key = ByteArrayWrapper(Utils.shardPrefix(shardCount, i, keySize))
+    val shard = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard_" + i, executor=executor, compactEnabled = true)
+    shards.put(key, shard)
+  }
+
+  val updateCounter = new AtomicLong(0)
 
   override def get(key: K): Option[V] = {
     assert(key.size > 7)
@@ -29,15 +42,29 @@ class ShardedStore(
       return None //map of shards was not found
 
     val shardsFromDist = v._2.get
-    //FIXME assumes single shard
-    val shardPos = shardsFromDist.values.last
-    val shard = shards.firstEntry().getValue
+
+    val shardPos = shardsFromDist.floorEntry(key).getValue
+    val shard = shards.floorEntry(key).getValue
 
     return shard.get(key = key, pos = shardPos)
   }
 
   override def getAll(consumer: (K, V) => Unit): Unit = {
-    journal.getAll(consumer)
+    //FIXME content is loaded to heap
+    val j = new java.util.TreeMap[K, V]
+    journal.getAll({ (k, v) =>
+      j.put(k, v)
+    }, dropTombstone = false)
+
+    for (shard <- shards.values().asScala) {
+      shard.getAll { (k, v) =>
+        j.putIfAbsent(k, v)
+      }
+    }
+    j.asScala.foreach { p =>
+      if (!(p._2 eq Store.tombstone))
+        consumer(p._1, p._2)
+    }
   }
 
   override def clean(count: Int): Unit = {
@@ -50,14 +77,23 @@ class ShardedStore(
 
   override def update(versionID: VersionID, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
     journal.update(versionID = versionID, toRemove = toRemove, toUpdate = toUpdate)
+
+    if(updateCounter.incrementAndGet()>10){
+      updateCounter.set(0)
+      executor.execute(runnable {
+        taskDistribute()
+      })
+    }
   }
 
   override def rollback(versionID: VersionID): Unit = {
     journal.rollback(versionID)
+//    shards.values().asScala.foreach(_.rollback(versionID))
   }
 
   override def close(): Unit = {
     journal.close()
+    shards.values().asScala.foreach(_.close())
   }
 
   override def rollbackVersions(): Iterable[VersionID] = {
@@ -66,10 +102,11 @@ class ShardedStore(
 
   override def verify(): Unit = {
     journal.verify()
+    shards.values().asScala.foreach(_.verify())
   }
 
-  def distribute(): Unit = {
-    val pos: FilePos = journal.appendDistrubutePlaceholder()
+  def taskDistribute(): Unit = {
+    val (prev,pos) = journal.appendDistributePlaceholder()
 
     val offsets = journal.loadUpdateOffsets(stopAtMerge = true, stopAtDistribute = true, startPos = pos)
     if (offsets.isEmpty)
@@ -78,20 +115,59 @@ class ShardedStore(
     val files = offsets.map(o => (o.pos.fileNum, journal.fileLock(o.pos.fileNum))).toMap
     try {
 
-      val dataset = journal.loadKeyValues(offsets.filter(_.entryType == LogStore.headUpdate), files, dropTombstones = false).toIterable
+      val dataset = journal.loadKeyValues(offsets.filter(_.entryType == LogStore.headUpdate), files, dropTombstones = false)
       if (dataset.isEmpty)
         return
 
-      //        val versionID = journal.loadVersionID(offsets.last.pos)
+      val data = new ArrayBuffer[(K, V)]()
 
-      val shard1Offset = shard1.updateDistribute(versionID = new K(0), data = dataset, triggerCompaction = false)
+      val shardIter = shards.asScala.iterator
+      var curr: (K, LogStore) = shardIter.next()
+
+      val distributeEntryContent = new ArrayBuffer[(K, FilePos)]
+
+
+      def flushShard(nextShardKey: K): Unit = {
+        var next: (K, V) = null
+        //collect keys, until next shard is reached
+        do {
+          next = if (dataset.hasNext) dataset.next() else null
+          if (next != null && (nextShardKey == null || next._1 < nextShardKey)) {
+            data += next
+          }
+        } while (next != null && (nextShardKey == null || next._1 < nextShardKey))
+
+        //reached end of data, or next shard, flush current shard
+        //TODO versionID
+        val shardOffset = curr._2.updateDistribute(versionID = new K(0), data = data, triggerCompaction = false)
+
+        distributeEntryContent += ((curr._1, shardOffset))
+
+        data.clear()
+        //next belongs to next shard
+        if (next != null) {
+          data += next
+        }
+      }
+
+      //iterate over shards
+      while (shardIter.hasNext) {
+        val next = shardIter.next()
+        flushShard(next._1)
+        curr = next
+      }
+      //update last shard
+      flushShard(null)
+
+      //append distribute entry into journal
 
       val journalOffset = offsets.head.pos
-      // FIXME single shard
       // insert distribute entry into journal
-      val pos2: FilePos = journal.appendDistributeEntry(journalPos = journalOffset, shards = Map(shards.firstKey() -> shard1Offset))
+      val pos2: FilePos = journal.appendDistributeEntry(journalPos = journalOffset, prevPos=prev, shards = distributeEntryContent)
       // insert alias, so , so it points to prev
       journal.appendFileAlias(pos.fileNum, pos.offset, pos2.fileNum, pos2.offset, updateEOF = true)
+
+
     } finally {
       for ((fileNum, fileHandle) <- files) {
         if (fileHandle != null)

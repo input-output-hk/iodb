@@ -4,6 +4,14 @@ import java.io.File
 import java.util.Random
 
 import io.iohk.iodb._
+import org.junit.Test
+
+class SimpleKVBench{
+  @Test def run(): Unit ={
+    SimpleKVBench.main(Array("1000", "100"))
+  }
+
+}
 
 case class BenchResult(storage: String, insertTime: Long, getTime: Long, storeSizeMb: Long)
 
@@ -19,8 +27,9 @@ object SimpleKVBench extends Benchmark{
     val updates = if (args.length > 0) args(0).toInt else defaultUpdates
     val keyCount = if (args.length > 0) args(0).toInt else defaultKeyCount
     var dir = TestUtils.tempDir()
+    dir.mkdirs()
     val lb = bench(
-      store = new ShardedStore(dir, keySize = KeySize),
+      store = new ShardedStore(dir, keySize = KeySize, shardCount = 10),
       dir = dir,
       updates = updates,
       keyCount = keyCount)
@@ -28,6 +37,7 @@ object SimpleKVBench extends Benchmark{
     printlnResult(lb)
 
     dir = TestUtils.tempDir()
+    dir.mkdirs()
     val rb = bench(
       store = new RocksStore(dir),
       dir = dir,

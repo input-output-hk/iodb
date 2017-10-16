@@ -103,6 +103,7 @@ object RandomRollbackTest {
       val getAll = store.getAll()
       val b1 = getAll.toBuffer.sortBy[ByteArrayWrapper](_._1).toBuffer
       val b2 = inserted.toBuffer.sortBy[ByteArrayWrapper](_._1).toBuffer
+      b1.size shouldBe b2.size
       b1 shouldBe b2
 
     }

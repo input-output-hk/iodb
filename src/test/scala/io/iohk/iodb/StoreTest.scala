@@ -261,7 +261,7 @@ abstract class StoreTest extends TestWithTempDir {
       while (exec.keepRunning) {
         store.clean(1)
         if (store.isInstanceOf[ShardedStore]) {
-          store.asInstanceOf[ShardedStore].distribute()
+          store.asInstanceOf[ShardedStore].taskDistribute()
         }
       }
     }

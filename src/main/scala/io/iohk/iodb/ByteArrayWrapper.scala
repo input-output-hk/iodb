@@ -42,6 +42,7 @@ case class ByteArrayWrapper(data: Array[Byte])
 
   override def toString: String = {
     val v = if (size == 8) {
+      //if size is 8, display as a number
       Utils.getLong(data, 0).toString + "L"
     } else {
       javax.xml.bind.DatatypeConverter.printHexBinary(data)
