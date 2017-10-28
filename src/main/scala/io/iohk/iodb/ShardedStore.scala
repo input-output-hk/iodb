@@ -41,9 +41,9 @@ class ShardedStore(
     if (v._2.isEmpty)
       return None //map of shards was not found
 
-    val shardsFromDist = v._2.get
+    val shardEntry = v._2.get
 
-    val shardPos = shardsFromDist.floorEntry(key).getValue
+    val shardPos = shardEntry.shards.floorEntry(key).getValue
     val shard = shards.floorEntry(key).getValue
 
     return shard.get(key = key, pos = shardPos)
@@ -51,17 +51,21 @@ class ShardedStore(
 
   override def getAll(consumer: (K, V) => Unit): Unit = {
     //FIXME content is loaded to heap
-    val j = new java.util.TreeMap[K, V]
-    journal.getAll({ (k, v) =>
-      j.put(k, v)
-    }, dropTombstone = false)
+    val (data, shardEntry) = journal.getAllDistribute()
 
-    for (shard <- shards.values().asScala) {
-      shard.getAll { (k, v) =>
-        j.putIfAbsent(k, v)
+    if(shardEntry!=null) {
+      shardEntry.shards.asScala.foreach { a =>
+        val shardKey = a._1
+        val shardPos = a._2
+        val shard = shards.get(shardKey)
+
+        shard.getAll({ (k, v) =>
+          data.putIfAbsent(k, v)
+        }, dropTombstone = true, startPos = shardPos)
       }
     }
-    j.asScala.foreach { p =>
+
+    data.asScala.foreach { p =>
       if (!(p._2 eq Store.tombstone))
         consumer(p._1, p._2)
     }
@@ -87,8 +91,34 @@ class ShardedStore(
   }
 
   override def rollback(versionID: VersionID): Unit = {
-    journal.rollback(versionID)
-//    shards.values().asScala.foreach(_.rollback(versionID))
+    journal.appendLock.lock()
+    try {
+      journal.rollback(versionID)
+      //find last distribute entry
+      val offsets = journal.loadUpdateOffsets(stopAtMerge = false, stopAtDistribute = false)
+      val distOffsets = offsets.filter(_.entryType==LogStore.headDistributeFinished)
+     // println(distOffsets.toBuffer)
+      //if there is some, load its version ID and rollback all shards
+      if(!distOffsets.isEmpty) {
+        val de = journal.loadDistributeEntry(distOffsets.head.pos)
+        shards.asScala.foreach { a=>
+          val shardKey = a._1
+          val shard = a._2
+          val shardOffset = de.shards.get(shardKey)
+          shard.rollbackToOffset(shardOffset)
+        }
+      }else{
+        //there is no distr entry, so remove all content from shards
+        shards.values().asScala.foreach { s =>
+          s.rollbackToZero()
+          assert(s.getAll().isEmpty)
+          assert(s.lastVersionID==None)
+        }
+
+      }
+    }finally{
+      journal.appendLock.unlock()
+    }
   }
 
   override def close(): Unit = {
@@ -115,7 +145,13 @@ class ShardedStore(
     val files = offsets.map(o => (o.pos.fileNum, journal.fileLock(o.pos.fileNum))).toMap
     try {
 
-      val dataset = journal.loadKeyValues(offsets.filter(_.entryType == LogStore.headUpdate), files, dropTombstones = false)
+      val offsets2 = offsets.filter(t=> t.entryType == LogStore.headUpdate || t.entryType==LogStore.headMerge )
+      if(offsets2.isEmpty)
+        return
+      val versionID = journal.loadVersionID(offsets2.head.pos)
+
+      val dataset = journal
+        .loadKeyValues(offsets2, files, dropTombstones = false)
       if (dataset.isEmpty)
         return
 
@@ -163,10 +199,10 @@ class ShardedStore(
 
       val journalOffset = offsets.head.pos
       // insert distribute entry into journal
-      val pos2: FilePos = journal.appendDistributeEntry(journalPos = journalOffset, prevPos=prev, shards = distributeEntryContent)
+      val pos2: FilePos = journal.appendDistributeEntry(journalPos = pos,
+          prevPos=prev, versionID=versionID, shards = distributeEntryContent)
       // insert alias, so , so it points to prev
       journal.appendFileAlias(pos.fileNum, pos.offset, pos2.fileNum, pos2.offset, updateEOF = true)
-
 
     } finally {
       for ((fileNum, fileHandle) <- files) {

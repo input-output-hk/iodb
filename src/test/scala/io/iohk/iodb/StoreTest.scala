@@ -120,6 +120,7 @@ abstract class StoreTest extends TestWithTempDir {
     for ((key, value) <- store.getAll()) {
       updated2.put(key, value)
     }
+    updated.size shouldBe  updated2.size
     assertEquals(updated, updated2)
     store.verify()
     store.close()
