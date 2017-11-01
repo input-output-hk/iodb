@@ -2,6 +2,7 @@ package io.iohk.iodb
 
 import java.io.{File, PrintStream, RandomAccessFile}
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.{Executor, Executors}
 
 import com.google.common.base.Strings
@@ -22,6 +23,9 @@ class ShardedStore(
 
 
   val shards = new java.util.TreeMap[K, LogStore]()
+
+  /** ensures that only single distribute task runs at a time */
+  private val distributeLock = new ReentrantLock()
 
   //initialize shards
   assert(shardCount > 0)
@@ -135,80 +139,88 @@ class ShardedStore(
     shards.values().asScala.foreach(_.verify())
   }
 
-  def taskDistribute(): Unit = {
-    val (prev,pos) = journal.appendDistributePlaceholder()
 
-    val offsets = journal.loadUpdateOffsets(stopAtMerge = true, stopAtDistribute = true, startPos = pos)
-    if (offsets.isEmpty)
-      return
-    //lock all files for reading
-    val files = offsets.map(o => (o.pos.fileNum, journal.fileLock(o.pos.fileNum))).toMap
+  def taskDistribute(): Unit = {
+    if(!distributeLock.tryLock())
+      return //distribute task is already running
     try {
 
-      val offsets2 = offsets.filter(t=> t.entryType == LogStore.headUpdate || t.entryType==LogStore.headMerge )
-      if(offsets2.isEmpty)
+      val (prev, pos) = journal.appendDistributePlaceholder()
+
+      val offsets = journal.loadUpdateOffsets(stopAtMerge = true, stopAtDistribute = true, startPos = pos)
+      if (offsets.isEmpty)
         return
-      val versionID = journal.loadVersionID(offsets2.head.pos)
+      //lock all files for reading
+      val files = offsets.map(o => (o.pos.fileNum, journal.fileLock(o.pos.fileNum))).toMap
+      try {
 
-      val dataset = journal
-        .loadKeyValues(offsets2, files, dropTombstones = false)
-      if (dataset.isEmpty)
-        return
+        val offsets2 = offsets.filter(t => t.entryType == LogStore.headUpdate || t.entryType == LogStore.headMerge)
+        if (offsets2.isEmpty)
+          return
+        val versionID = journal.loadVersionID(offsets2.head.pos)
 
-      val data = new ArrayBuffer[(K, V)]()
+        val dataset = journal
+          .loadKeyValues(offsets2, files, dropTombstones = false)
+        if (dataset.isEmpty)
+          return
 
-      val shardIter = shards.asScala.iterator
-      var curr: (K, LogStore) = shardIter.next()
+        val data = new ArrayBuffer[(K, V)]()
 
-      val distributeEntryContent = new ArrayBuffer[(K, FilePos)]
+        val shardIter = shards.asScala.iterator
+        var curr: (K, LogStore) = shardIter.next()
+
+        val distributeEntryContent = new ArrayBuffer[(K, FilePos)]
 
 
-      def flushShard(nextShardKey: K): Unit = {
-        var next: (K, V) = null
-        //collect keys, until next shard is reached
-        do {
-          next = if (dataset.hasNext) dataset.next() else null
-          if (next != null && (nextShardKey == null || next._1 < nextShardKey)) {
+        def flushShard(nextShardKey: K): Unit = {
+          var next: (K, V) = null
+          //collect keys, until next shard is reached
+          do {
+            next = if (dataset.hasNext) dataset.next() else null
+            if (next != null && (nextShardKey == null || next._1 < nextShardKey)) {
+              data += next
+            }
+          } while (next != null && (nextShardKey == null || next._1 < nextShardKey))
+
+          //reached end of data, or next shard, flush current shard
+          //TODO versionID
+          val shardOffset = curr._2.updateDistribute(versionID = new K(0), data = data, triggerCompaction = false)
+
+          distributeEntryContent += ((curr._1, shardOffset))
+
+          data.clear()
+          //next belongs to next shard
+          if (next != null) {
             data += next
           }
-        } while (next != null && (nextShardKey == null || next._1 < nextShardKey))
+        }
 
-        //reached end of data, or next shard, flush current shard
-        //TODO versionID
-        val shardOffset = curr._2.updateDistribute(versionID = new K(0), data = data, triggerCompaction = false)
+        //iterate over shards
+        while (shardIter.hasNext) {
+          val next = shardIter.next()
+          flushShard(next._1)
+          curr = next
+        }
+        //update last shard
+        flushShard(null)
 
-        distributeEntryContent += ((curr._1, shardOffset))
+        //append distribute entry into journal
 
-        data.clear()
-        //next belongs to next shard
-        if (next != null) {
-          data += next
+        val journalOffset = offsets.head.pos
+        // insert distribute entry into journal
+        val pos2: FilePos = journal.appendDistributeEntry(journalPos = pos,
+          prevPos = prev, versionID = versionID, shards = distributeEntryContent)
+        // insert alias, so , so it points to prev
+        journal.appendFileAlias(pos.fileNum, pos.offset, pos2.fileNum, pos2.offset, updateEOF = true)
+
+      } finally {
+        for ((fileNum, fileHandle) <- files) {
+          if (fileHandle != null)
+            journal.fileUnlock(fileNum)
         }
       }
-
-      //iterate over shards
-      while (shardIter.hasNext) {
-        val next = shardIter.next()
-        flushShard(next._1)
-        curr = next
-      }
-      //update last shard
-      flushShard(null)
-
-      //append distribute entry into journal
-
-      val journalOffset = offsets.head.pos
-      // insert distribute entry into journal
-      val pos2: FilePos = journal.appendDistributeEntry(journalPos = pos,
-          prevPos=prev, versionID=versionID, shards = distributeEntryContent)
-      // insert alias, so , so it points to prev
-      journal.appendFileAlias(pos.fileNum, pos.offset, pos2.fileNum, pos2.offset, updateEOF = true)
-
-    } finally {
-      for ((fileNum, fileHandle) <- files) {
-        if (fileHandle != null)
-          journal.fileUnlock(fileNum)
-      }
+    }finally{
+      distributeLock.unlock()
     }
   }
 
