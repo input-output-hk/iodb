@@ -161,9 +161,14 @@ class ShardedStore(
   }
 
   override def close(): Unit = {
-    isClosed = true
-    journal.close()
-    shards.values().asScala.foreach(_.close())
+    distributeLock.lock()
+    try {
+      isClosed = true
+      journal.close()
+      shards.values().asScala.foreach(_.close())
+    }finally{
+      distributeLock.unlock()
+    }
   }
 
   override def rollbackVersions(): Iterable[VersionID] = {
@@ -177,9 +182,10 @@ class ShardedStore(
 
 
   def taskDistribute(): Unit = {
-    if(!distributeLock.tryLock())
-      return //distribute task is already running
+    distributeLock.lock()
     try {
+      if(isClosed)
+        return
 
       val (prev, pos) = journal.appendDistributePlaceholder()
 
