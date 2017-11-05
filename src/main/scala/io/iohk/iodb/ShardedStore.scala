@@ -3,7 +3,7 @@ package io.iohk.iodb
 import java.io.{File, PrintStream, RandomAccessFile}
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
-import java.util.concurrent.{Executor, Executors}
+import java.util.concurrent._
 
 import com.google.common.base.Strings
 import com.google.common.io.Closeables
@@ -15,8 +15,9 @@ import scala.collection.mutable.ArrayBuffer
 class ShardedStore(
                     val dir: File,
                     val keySize: Int = 32,
-                    val shardCount: Int = 1,
-                    val executor:Executor = Executors.newCachedThreadPool()
+                    val shardCount: Int = 20,
+                    //unlimited thread executor, but the threads will exit faster to prevent memory leaki8a99
+                    val executor:Executor = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 1, TimeUnit.SECONDS, new SynchronousQueue[Runnable]())
                   )extends Store {
 
   val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal", executor=executor)
@@ -27,6 +28,8 @@ class ShardedStore(
   /** ensures that only single distribute task runs at a time */
   private val distributeLock = new ReentrantLock()
 
+  @volatile private var isClosed = false
+
   //initialize shards
   assert(shardCount > 0)
   for (i <- 0 until shardCount) {
@@ -34,6 +37,45 @@ class ShardedStore(
     val shard = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard_" + i, executor=executor, compactEnabled = true)
     shards.put(key, shard)
   }
+
+  if(executor!=null){
+    //start background compaction task
+    executor.execute(runnable{
+      while(!isClosed) {
+        try {
+//          println("J "+journal.unmergedUpdates.get()+" - S "+shards.values().asScala.map(_.unmergedUpdates.get))
+          //find the most fragmented shard
+          val shard:LogStore = shards.values().asScala.toBuffer.sortBy{s:LogStore=>s.unmergedUpdates.get}.reverse.head
+
+//          println(shard.unmergedUpdates.get)
+          if(shard.unmergedUpdates.get>4) {
+            shard.taskCompact()
+          }else{
+            Thread.sleep(100)
+          }
+
+        } catch {
+          case e: Exception => new ExecutionException("Background shard compaction task failed", e).printStackTrace()
+        }
+      }
+    })
+
+    executor.execute(runnable{
+      while(!isClosed) {
+        try {
+          if(updateCounter.incrementAndGet()>10) {
+            updateCounter.set(0)
+            taskDistribute()
+          }else{
+            Thread.sleep(100)
+          }
+        } catch {
+          case e: Exception => new ExecutionException("Background distribution task failed", e).printStackTrace()
+        }
+      }
+    })
+  }
+
 
   val updateCounter = new AtomicLong(0)
 
@@ -85,13 +127,6 @@ class ShardedStore(
 
   override def update(versionID: VersionID, toRemove: Iterable[K], toUpdate: Iterable[(K, V)]): Unit = {
     journal.update(versionID = versionID, toRemove = toRemove, toUpdate = toUpdate)
-
-    if(updateCounter.incrementAndGet()>10){
-      updateCounter.set(0)
-      executor.execute(runnable {
-        taskDistribute()
-      })
-    }
   }
 
   override def rollback(versionID: VersionID): Unit = {
@@ -126,6 +161,7 @@ class ShardedStore(
   }
 
   override def close(): Unit = {
+    isClosed = true
     journal.close()
     shards.values().asScala.foreach(_.close())
   }
@@ -213,6 +249,7 @@ class ShardedStore(
         // insert alias, so , so it points to prev
         journal.appendFileAlias(pos.fileNum, pos.offset, pos2.fileNum, pos2.offset, updateEOF = true)
 
+        journal.unmergedUpdates.set(0)
       } finally {
         for ((fileNum, fileHandle) <- files) {
           if (fileHandle != null)

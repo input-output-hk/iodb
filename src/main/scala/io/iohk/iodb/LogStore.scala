@@ -6,7 +6,7 @@ import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import java.util
 import java.util.Comparator
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
 import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentSkipListMap, Executor, Executors}
 
@@ -85,6 +85,8 @@ class LogStore(
   /** file output over latest file */
   protected var fout: FileChannel = null
 
+
+  protected[iodb] val unmergedUpdates = new AtomicLong(0)
 
   /** Lock used when creating or deleting old files  */
   protected[iodb] val fileLock = new ReentrantLock()
@@ -165,6 +167,9 @@ class LogStore(
 
       //FIXME howto handle data corruption? store should open, even if there is a corruption
     }
+
+    val unmergedCount = loadUpdateOffsets(stopAtDistribute = true, stopAtMerge = true).size
+    this.unmergedUpdates.set(unmergedCount)
   }
 
 
@@ -282,6 +287,7 @@ class LogStore(
   protected[iodb] def updateDistribute(versionID: VersionID, data: Iterable[(K, V)], triggerCompaction: Boolean): FilePos = {
     appendLock.lock()
     try {
+      unmergedUpdates.incrementAndGet()
       val oldPos = getValidPos()
       val curPos = eof
       //TODO optimistic serialization outside appendLock, retry offset (and reserialize) under lock
@@ -806,6 +812,7 @@ class LogStore(
         append(data)
         //and update pointers
         setValidPos(eof2)
+        unmergedUpdates.set(0)
       } finally {
         for ((fileNum, fileHandle) <- files) {
           if (fileHandle != null)
@@ -961,6 +968,8 @@ class LogStore(
 
           //update offsets
           setValidPos(pos.pos)
+          //restore update counts
+          unmergedUpdates.set(loadUpdateOffsets(stopAtDistribute = true, stopAtMerge = true).size)
           //TODO background operations
           taskFileDeleteScheduled()
           return
