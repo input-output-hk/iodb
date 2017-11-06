@@ -39,8 +39,19 @@ class ShardedStore(
   }
 
   if(executor!=null){
+    def waitForStart(): Unit ={
+      //wait initial time until store is initialized
+      var count = 60
+      while(count>0 && !isClosed){
+        count-=1
+        Thread.sleep(1000)
+      }
+    }
+
     //start background compaction task
     executor.execute(runnable{
+      waitForStart()
+      //start loop
       while(!isClosed) {
         try {
           //find the most fragmented shard
@@ -50,14 +61,14 @@ class ShardedStore(
           }else{
             Thread.sleep(100)
           }
-
         } catch {
-          case e: Exception => new ExecutionException("Background shard compaction task failed", e).printStackTrace()
+          case e: Throwable => new ExecutionException("Background shard compaction task failed", e).printStackTrace()
         }
       }
     })
 
     executor.execute(runnable{
+      waitForStart()
       while(!isClosed) {
         try {
           if(updateCounter.incrementAndGet()>10) {
@@ -67,7 +78,7 @@ class ShardedStore(
             Thread.sleep(100)
           }
         } catch {
-          case e: Exception => new ExecutionException("Background distribution task failed", e).printStackTrace()
+          case e: Throwable => new ExecutionException("Background distribution task failed", e).printStackTrace()
         }
       }
     })
