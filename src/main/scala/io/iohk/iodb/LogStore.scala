@@ -8,7 +8,7 @@ import java.util
 import java.util.Comparator
 import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
 import java.util.concurrent.locks.ReentrantLock
-import java.util.concurrent.{ConcurrentHashMap, ConcurrentSkipListMap, Executor, Executors}
+import java.util.concurrent._
 
 import com.google.common.collect.Iterators
 import io.iohk.iodb.Store._
@@ -63,7 +63,8 @@ class LogStore(
                 val keepVersions: Int = 0,
                 val filePrefix: String = "store",
                 val fileSuffix: String = ".journal",
-                val executor:Executor = Executors.newCachedThreadPool(),
+                //unlimited thread executor, but the threads will exit faster to prevent memory leak
+                val executor:Executor = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 1, TimeUnit.SECONDS, new SynchronousQueue[Runnable]()),
                 val compactEnabled:Boolean = false
               ) extends Store {
 
@@ -154,6 +155,8 @@ class LogStore(
           offsetAliases.put(oldPos, newPos)
         }
         offset += size
+        eof = FilePos(fileNum, offset)
+        fout = fileHandle
       }
     }
 
@@ -447,7 +450,6 @@ class LogStore(
         val fileNum = 1L
         //add to file handles
         fout = fileOpen(fileNum)
-
         eof = FilePos(fileNum = fileNum, offset = fout.size())
       }
 

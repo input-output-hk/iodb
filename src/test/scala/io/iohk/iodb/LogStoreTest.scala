@@ -261,4 +261,30 @@ class LogStoreTest extends StoreTest {
     store.close()
     store.fileSemaphore shouldBe empty
   }
+
+  @Test def reopen(): Unit ={
+    var store = open(keySize = 8)
+    var i = 0
+    while(i<1000) {
+      for(j<-0 until 10) {
+        i += 1
+        val b = fromLong(i)
+        store.update(versionID = b, toRemove = Nil, toUpdate = List((b, b)))
+        if(Math.random()<0.1)
+          store.taskCompact()
+      }
+
+      val validPos = store._validPos.get()
+      val eof = store.eof
+
+      store.close()
+      store = open(keySize = 8)
+      if(validPos.offset!=0)
+        store._validPos.get() shouldBe validPos
+      else
+        validPos shouldBe new FilePos(store._validPos.get().fileNum+1, 0)
+
+      eof shouldBe store.eof
+    }
+  }
 }

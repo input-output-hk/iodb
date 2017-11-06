@@ -16,7 +16,7 @@ class ShardedStore(
                     val dir: File,
                     val keySize: Int = 32,
                     val shardCount: Int = 20,
-                    //unlimited thread executor, but the threads will exit faster to prevent memory leaki8a99
+                    //unlimited thread executor, but the threads will exit faster to prevent memory leak
                     val executor:Executor = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 1, TimeUnit.SECONDS, new SynchronousQueue[Runnable]())
                   )extends Store {
 
@@ -34,7 +34,7 @@ class ShardedStore(
   assert(shardCount > 0)
   for (i <- 0 until shardCount) {
     val key = ByteArrayWrapper(Utils.shardPrefix(shardCount, i, keySize))
-    val shard = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard_" + i, executor=executor, compactEnabled = true)
+    val shard = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard_" + i + "_", executor=executor, compactEnabled = true)
     shards.put(key, shard)
   }
 
