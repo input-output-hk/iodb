@@ -41,7 +41,7 @@ object LogStore {
 
 /** position in files; file number and file offset */
 case class FilePos(fileNum: FileNum, offset: FileOffset) {
-
+  assert(offset>=0)
 }
 
 /** offset withing single file, also contains log entry type */
@@ -76,7 +76,7 @@ class LogStore(
     *
     * Is read without lock, is updated under `appendLock` after file sync
     */
-  protected[iodb] val _validPos = new AtomicReference(new FilePos(fileNum = 1L, offset = -1L))
+  protected[iodb] val _validPos = new AtomicReference(new FilePos(fileNum = 1L, offset = 0L))
 
 
   /** End of File. New records will be appended here

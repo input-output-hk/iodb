@@ -20,7 +20,7 @@ class ShardedStore(
                     val executor:Executor = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 1, TimeUnit.SECONDS, new SynchronousQueue[Runnable]())
                   )extends Store {
 
-  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal", executor=executor)
+  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal", executor=null)
 
 
   val shards = new java.util.TreeMap[K, LogStore]()
@@ -34,7 +34,7 @@ class ShardedStore(
   assert(shardCount > 0)
   for (i <- 0 until shardCount) {
     val key = ByteArrayWrapper(Utils.shardPrefix(shardCount, i, keySize))
-    val shard = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard_" + i + "_", executor=executor, compactEnabled = true)
+    val shard = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard_" + i + "_", executor=null, compactEnabled = false)
     shards.put(key, shard)
   }
 
