@@ -16,9 +16,8 @@ class IODBSpecification extends PropSpec
   with Matchers
   with BeforeAndAfterAll {
 
-
+/*
   property("rollback test Sharded") {
-
     TestUtils.withTempDir { iFile =>
       rollbackTest(blockStorage = new ShardedStore(iFile))
     }
@@ -54,7 +53,7 @@ class IODBSpecification extends PropSpec
     }
   }
 
-
+*/
   def rollbackTest(blockStorage:Store){
     //initialize test
     val NumberOfBlocks = 100
