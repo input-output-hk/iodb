@@ -107,6 +107,7 @@ object RandomRollbackTest {
       b1 shouldBe b2
 
     }
+    store.close()
   }
 
 }

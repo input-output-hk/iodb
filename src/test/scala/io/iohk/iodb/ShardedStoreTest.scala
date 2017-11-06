@@ -56,7 +56,7 @@ class ShardedStoreTest extends StoreTest {
 
 
   @Test def shard_count(): Unit = {
-    val s = new ShardedStore(dir = dir, shardCount = 10, keySize = 8)
+    val s = new ShardedStore(dir = dir, shardCount = 10, keySize = 8, executor = null)
     s.shards.size() shouldBe 10
     s.shards.asScala.values.toSet.size shouldBe 10
 
@@ -76,5 +76,6 @@ class ShardedStoreTest extends StoreTest {
     for (shard <- s.shards.values().asScala) {
       assert(shard.getAll().toBuffer.size > 0)
     }
+    s.close()
   }
 }

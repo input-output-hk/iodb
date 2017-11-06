@@ -43,11 +43,8 @@ class ShardedStore(
     executor.execute(runnable{
       while(!isClosed) {
         try {
-//          println("J "+journal.unmergedUpdates.get()+" - S "+shards.values().asScala.map(_.unmergedUpdates.get))
           //find the most fragmented shard
           val shard:LogStore = shards.values().asScala.toBuffer.sortBy{s:LogStore=>s.unmergedUpdates.get}.reverse.head
-
-//          println(shard.unmergedUpdates.get)
           if(shard.unmergedUpdates.get>4) {
             shard.taskCompact()
           }else{

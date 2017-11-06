@@ -112,6 +112,7 @@ class IODBSpecification extends PropSpec
     }
 
     existingKeys.foreach(ek => blockStorage.get(ek).isDefined shouldBe true)
+    blockStorage.close()
   }
 
 
@@ -155,6 +156,7 @@ class IODBSpecification extends PropSpec
     }
     ids.foreach(id => blockStorage.rollbackVersions().exists(_ == id) shouldBe true)
 
+    blockStorage.close()
   }
 
 

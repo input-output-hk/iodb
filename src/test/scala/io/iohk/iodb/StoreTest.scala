@@ -159,6 +159,7 @@ abstract class StoreTest extends TestWithTempDir {
     assertEquals(Some(fromLong(1)), store.lastVersionID)
     assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
     store.verify()
+    store.close()
   }
 
   @Test def rollback(): Unit = {
@@ -179,6 +180,7 @@ abstract class StoreTest extends TestWithTempDir {
     assertEquals(Some(fromLong(1)), store.lastVersionID)
     assertEquals(Some(fromLong(1)), store.get(fromLong(1)))
     store.verify()
+    store.close()
   }
 
   @Test def longRunningUpdates(): Unit = {
@@ -270,7 +272,9 @@ abstract class StoreTest extends TestWithTempDir {
 
 
   @Test def `quick store's lastVersionId should be None right after creation` {
-    assert(open().lastVersionID == None)
+    val s = open()
+    assert(s.lastVersionID == None)
+    s.close()
   }
 
   @Test def `empty update rollback versions test` {
@@ -337,6 +341,7 @@ abstract class StoreTest extends TestWithTempDir {
     checkBlockExists(block1)
     checkBlockExists(block2)
     checkBlockExists(block3)
+    blockStorage.close()
   }
 
 
@@ -350,6 +355,7 @@ abstract class StoreTest extends TestWithTempDir {
     val version2 = ByteArrayWrapper("version2".getBytes)
     blockStorage.update(version2, Seq(), Seq())
     assert(blockStorage.rollbackVersions().size == 2)
+    blockStorage.close()
   }
 
   case class BlockChanges(id: ByteArrayWrapper,
@@ -394,11 +400,17 @@ abstract class StoreTest extends TestWithTempDir {
     s.get(block3.id) shouldBe None
     s.lastVersionID.get shouldBe block1.id
     s.rollbackVersions() shouldBe List(block1.id)
-
+    s.close()
   }
 
   @Test def test_random_rollback(): Unit ={
     RandomRollbackTest.test(open())
+  }
+
+  @Test def idle_store(): Unit ={
+    val s = open()
+    Thread.sleep(10000)
+    s.close()
   }
 
 }
