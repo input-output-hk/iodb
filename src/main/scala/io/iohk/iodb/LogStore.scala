@@ -1171,20 +1171,33 @@ class LogStore(
 
     val baseKeyOffset = offset + LogStore.updateHeaderSize
 
-    return (0 until keyCount).map { i =>
-      val keyOffset = baseKeyOffset + i * keySize
-      val key = fileReadData(c, keyOffset, keySize)
+    object ret extends Iterator[(K,V)](){
 
-      val pointersOffsets = baseKeyOffset + keyCount * keySize + i * 8
-      val valueSize = fileReadInt(c, pointersOffsets, tempBuf)
-      val value =
-        if (valueSize == -1) Store.tombstone
-        else {
-          val valueOffset = fileReadInt(c, pointersOffsets + 4, tempBuf)
-          fileReadData(c, offset + valueOffset, valueSize)
-        }
-      (key, value)
-    }.iterator
+      var i = 0;
+
+      override def hasNext:Boolean = i<keyCount
+
+      override def next():(K,V) = {
+        if(i>=keyCount)
+          throw new NoSuchElementException()
+        val keyOffset = baseKeyOffset + i * keySize
+        val key = fileReadData(c, keyOffset, keySize)
+
+        val pointersOffsets = baseKeyOffset + keyCount * keySize + i * 8
+        val valueSize = fileReadInt(c, pointersOffsets, tempBuf)
+        val value =
+          if (valueSize == -1) Store.tombstone
+          else {
+            val valueOffset = fileReadInt(c, pointersOffsets + 4, tempBuf)
+            fileReadData(c, offset + valueOffset, valueSize)
+          }
+
+        i+=1
+        (key, value)
+      }
+    }
+
+    return ret
   }
 
 }
