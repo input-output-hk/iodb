@@ -41,7 +41,7 @@ object LogStore {
 
 /** position in files; file number and file offset */
 case class FilePos(fileNum: FileNum, offset: FileOffset) {
-  assert(offset>=0)
+
 }
 
 /** offset withing single file, also contains log entry type */
@@ -50,10 +50,10 @@ case class LogEntryPos(pos: FilePos, entryType: Byte) {
 
 
 case class DistributeEntry(
-                           journalPos: FilePos,
-                           prevPos:FilePos,
-                           versionID:VersionID,
-                           shards: util.TreeMap[K, FilePos])
+                            journalPos: FilePos,
+                            prevPos:FilePos,
+                            versionID:VersionID,
+                            shards: util.TreeMap[K, FilePos])
 /**
   * Implementation of Store over series of Log Files
   */
@@ -76,7 +76,7 @@ class LogStore(
     *
     * Is read without lock, is updated under `appendLock` after file sync
     */
-  protected[iodb] val _validPos = new AtomicReference(new FilePos(fileNum = 1L, offset = 0L))
+  protected[iodb] val _validPos = new AtomicReference(new FilePos(fileNum = 1L, offset = -1L))
 
 
   /** End of File. New records will be appended here
@@ -232,7 +232,7 @@ class LogStore(
 
     //write value sizes and their offsets
     var valueOffset = out.size() + data.size * 8 + (if(versionID==null) 0 else versionID.size)
-      data.foreach { t =>
+    data.foreach { t =>
       val value = t._2
       if (value eq Store.tombstone) {
         //tombstone
@@ -560,11 +560,11 @@ class LogStore(
       (0 until mapSize)
         .map(pos + _ * (16 + keySize)) //offset
         .map { offset =>
-          val pos2 = loadFilePos(fileHandle, offset)
-          val key = new K(keySize)
-          fileReadData(fileHandle, offset + 16, key.data)
-          shards.put(key, pos2)
-        }
+        val pos2 = loadFilePos(fileHandle, offset)
+        val key = new K(keySize)
+        fileReadData(fileHandle, offset + 16, key.data)
+        shards.put(key, pos2)
+      }
       return DistributeEntry(prevPos=prevPos, journalPos=journalPos, versionID=versionID, shards=shards)
     } finally {
       if (fileHandle != null)
@@ -980,7 +980,7 @@ class LogStore(
       //version not found
       throw new IllegalArgumentException("Version not found")
     } finally {
-       appendLock.unlock()
+      appendLock.unlock()
     }
 
     //TODO background operations

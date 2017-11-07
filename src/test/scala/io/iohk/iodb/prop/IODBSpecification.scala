@@ -28,6 +28,7 @@ class IODBSpecification extends PropSpec
       writeKeyTest(blockStorage = new ShardedStore(iFile))
     }
   }
+*/
 
   property("rollback test Log") {
     TestUtils.withTempDir { iFile =>
@@ -53,7 +54,6 @@ class IODBSpecification extends PropSpec
     }
   }
 
-*/
   def rollbackTest(blockStorage:Store){
     //initialize test
     val NumberOfBlocks = 100
