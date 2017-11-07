@@ -1140,7 +1140,7 @@ class LogStore(
 
   def fileReadData(c: FileChannel, offset: Long, data: Array[Byte]): Unit = {
     val b = ByteBuffer.wrap(data)
-    c.position(offset.toInt)
+    c.position(offset)
     Utils.readFully(c, offset, b)
   }
 
