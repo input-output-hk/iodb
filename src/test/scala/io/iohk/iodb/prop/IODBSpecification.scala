@@ -16,7 +16,6 @@ class IODBSpecification extends PropSpec
   with Matchers
   with BeforeAndAfterAll {
 
-/*
   property("rollback test Sharded") {
     TestUtils.withTempDir { iFile =>
       rollbackTest(blockStorage = new ShardedStore(iFile))
@@ -28,7 +27,7 @@ class IODBSpecification extends PropSpec
       writeKeyTest(blockStorage = new ShardedStore(iFile))
     }
   }
-*/
+
 
   property("rollback test Log") {
     TestUtils.withTempDir { iFile =>

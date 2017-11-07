@@ -453,7 +453,7 @@ class LogStore(
         eof = FilePos(fileNum = fileNum, offset = fout.size())
       }
 
-      assert(fout.size() == eof.offset)
+//      assert(fout.size() == eof.offset)
 
       val data2 = ByteBuffer.wrap(data)
       val offset = eof.offset
@@ -461,7 +461,7 @@ class LogStore(
 
       val ret = eof;
       eof = eof.copy(offset = eof.offset + data.size)
-      assert(fout.size() == eof.offset)
+//      assert(fout.size() == eof.offset)
 
       //flush changes
       fout.force(true)
