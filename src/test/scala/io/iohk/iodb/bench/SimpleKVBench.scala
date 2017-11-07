@@ -25,7 +25,7 @@ object SimpleKVBench extends Benchmark{
 
   def main(args: Array[String]) {
     val updates = if (args.length > 0) args(0).toInt else defaultUpdates
-    val keyCount = if (args.length > 0) args(0).toInt else defaultKeyCount
+    val keyCount = if (args.length > 1) args(1).toInt else defaultKeyCount
     var dir = TestUtils.tempDir()
     dir.mkdirs()
     val lb = bench(
