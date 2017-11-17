@@ -138,6 +138,7 @@ class ShardedStore(
   }
 
   override def rollback(versionID: VersionID): Unit = {
+    distributeLock.lock()
     journal.appendLock.lock()
     try {
       journal.rollback(versionID)
@@ -165,6 +166,7 @@ class ShardedStore(
       }
     }finally{
       journal.appendLock.unlock()
+      distributeLock.unlock()
     }
   }
 

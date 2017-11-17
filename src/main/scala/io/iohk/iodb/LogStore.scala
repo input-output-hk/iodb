@@ -281,7 +281,6 @@ class LogStore(
     }
     updateDistribute(versionID = versionID, data = data, triggerCompaction = true)
 
-    //TODO background operations
     taskFileDeleteScheduled()
   }
 
@@ -825,7 +824,6 @@ class LogStore(
       appendLock.unlock()
     }
 
-    //TODO background operations
     taskFileDeleteScheduled()
   }
 
@@ -917,9 +915,7 @@ class LogStore(
       appendLock.unlock()
     }
 
-    //TODO background operations
     taskFileDeleteScheduled()
-
   }
 
   def rollbackToZero(): Unit = {
@@ -945,7 +941,6 @@ class LogStore(
       appendLock.unlock()
     }
 
-    //TODO background operations
     taskFileDeleteScheduled()
   }
 
@@ -972,7 +967,6 @@ class LogStore(
           setValidPos(pos.pos)
           //restore update counts
           unmergedUpdates.set(loadUpdateOffsets(stopAtDistribute = true, stopAtMerge = true).size)
-          //TODO background operations
           taskFileDeleteScheduled()
           return
         }
@@ -983,7 +977,6 @@ class LogStore(
       appendLock.unlock()
     }
 
-    //TODO background operations
     taskFileDeleteScheduled()
   }
 
