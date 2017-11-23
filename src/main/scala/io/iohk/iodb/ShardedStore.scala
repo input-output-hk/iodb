@@ -1,6 +1,6 @@
 package io.iohk.iodb
 
-import java.io.{File, PrintStream, RandomAccessFile}
+import java.io._
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent._
@@ -216,13 +216,24 @@ class ShardedStore(
         if (dataset.isEmpty)
           return
 
-        val data = new ArrayBuffer[(K, V)]()
+        val tmpFile = new File(dir, "distribute"+System.currentTimeMillis())
+        var out1 = new FileOutputStream(tmpFile)
+        var out2 = new DataOutputStream(new BufferedOutputStream(out1))
+        assert(tmpFile.exists())
 
         val shardIter = shards.asScala.iterator
         var curr: (K, LogStore) = shardIter.next()
 
         val distributeEntryContent = new ArrayBuffer[(K, FilePos)]
 
+        def appendPair(next:(K,V)){
+          def isTomb = next._2 eq Store.tombstone
+          out2.writeInt(next._1.size)
+          out2.writeInt(if(isTomb) -1 else next._2.size)
+          out2.write(next._1.data)
+          if(!isTomb)
+            out2.write(next._2.data)
+        }
 
         def flushShard(nextShardKey: K): Unit = {
           var next: (K, V) = null
@@ -230,20 +241,83 @@ class ShardedStore(
           do {
             next = if (dataset.hasNext) dataset.next() else null
             if (next != null && (nextShardKey == null || next._1 < nextShardKey)) {
-              data += next
+              appendPair(next)
             }
           } while (next != null && (nextShardKey == null || next._1 < nextShardKey))
 
           //reached end of data, or next shard, flush current shard
+          out2.flush()
+          out2.close()
+          out1.close()
+
+          object iter extends Iterable[(K,V)]{
+            override def iterator():Iterator[(K,V)] = {
+              var in0 = new FileInputStream(tmpFile)
+              val in = new DataInputStream(new BufferedInputStream(in0))
+
+              object i extends Iterator[(K,V)] {
+
+                var _next:(K,V) = null
+
+                override def hasNext = _next!=null
+
+                override def next():(K,V) = {
+                  val ret = _next;
+                  if(_next==null)
+                    throw new NoSuchElementException()
+
+                  advance()
+                  return ret
+                }
+
+                def advance(): Unit ={
+                  if(in0 == null){
+                    _next = null
+                    return
+                  }
+
+                  try {
+                    val keySize = in.readInt()
+                    assert(keySize >= 0)
+
+                    val valueSize = in.readInt()
+                    assert(valueSize >= -1)
+
+                    val key = new K(keySize)
+                    in.readFully(key.data)
+
+                    val value = if (valueSize == -1) Store.tombstone else new V(valueSize)
+                    if (valueSize > 0)
+                      in.readFully(value.data)
+
+                    _next = (key, value)
+                  }catch{
+                    case eof:EOFException =>{
+                      //TODO better way to check for EOF
+                      in0.close() // release file resources
+                      in0 = null
+                    }
+                  }
+                }
+              }
+
+              i.advance()
+
+              return i
+            }
+          }
           //TODO versionID
-          val shardOffset = curr._2.updateDistribute(versionID = new K(0), data = data, triggerCompaction = false)
+          val shardOffset = curr._2.updateDistribute(versionID = new K(0), data = iter, triggerCompaction = false)
 
           distributeEntryContent += ((curr._1, shardOffset))
 
-          data.clear()
+          out1 = new FileOutputStream(tmpFile)
+          out2 = new DataOutputStream(new BufferedOutputStream(out1))
+          assert(tmpFile.length()==0)
+
           //next belongs to next shard
           if (next != null) {
-            data += next
+            appendPair(next)
           }
         }
 
@@ -256,8 +330,10 @@ class ShardedStore(
         //update last shard
         flushShard(null)
 
-        //append distribute entry into journal
+        out1.close()
+        tmpFile.delete()
 
+        //append distribute entry into journal
         val journalOffset = offsets.head.pos
         // insert distribute entry into journal
         val pos2: FilePos = journal.appendDistributeEntry(journalPos = pos,

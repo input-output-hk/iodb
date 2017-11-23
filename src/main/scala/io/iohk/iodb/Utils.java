@@ -1,20 +1,16 @@
 package io.iohk.iodb;
 
-import net.jpountz.xxhash.XXHash64;
-import net.jpountz.xxhash.XXHashFactory;
+import net.jpountz.xxhash.*;
 import sun.misc.Cleaner;
 import sun.nio.ch.DirectBuffer;
 
-import java.io.EOFException;
-import java.io.File;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.io.*;
+import java.nio.*;
 import java.nio.channels.FileChannel;
+import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.util.logging.*;
 
 /**
  * Java utilities
@@ -183,6 +179,7 @@ public class Utils {
     }
 
 
+
     static void writeFully(FileChannel channel, long offset, ByteBuffer buf) throws IOException {
         int remaining = buf.limit() - buf.position();
 
@@ -194,17 +191,22 @@ public class Utils {
         }
     }
 
+    static void writeFully(FileChannel channel, long offset, File from) throws IOException {
+        long fromLen = from.length();
+        FileChannel fromc = FileChannel.open(from.toPath(), StandardOpenOption.READ);
 
-    static void writeFully(FileChannel channel, ByteBuffer buf) throws IOException {
-        int remaining = buf.limit() - buf.position();
+        long remaining = fromLen;
 
         while (remaining > 0) {
-            int written = channel.write(buf);
+            long written = channel.transferFrom(fromc, offset+ fromLen-remaining, remaining);
             if (written < 0)
                 throw new EOFException();
             remaining -= written;
         }
+        fromc.close();
     }
+
+
 
     static void readFully(FileChannel channel, long offset, ByteBuffer buf) throws IOException {
         int remaining = buf.limit() - buf.position();
