@@ -3,7 +3,7 @@ package io.iohk.iodb
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.{Executors, TimeUnit}
 
-/** executes multiple tasks in background thread, waits until they finish, fails if any tasks throws exception */
+/** executes multiple tasks in background thread, waits until they all finish, fails if any tasks throws exception */
 class ForkExecutor(duration: Long) {
 
   val endTime = System.currentTimeMillis() + duration
@@ -34,7 +34,7 @@ class ForkExecutor(duration: Long) {
       }
     }
 
-    while (!executor.awaitTermination(10, TimeUnit.MICROSECONDS)) {
+    while (!executor.awaitTermination(1, TimeUnit.SECONDS)) {
       rethrow()
     }
     rethrow()
