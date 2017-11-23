@@ -27,6 +27,8 @@ object M1Test {
 
   val batchSize = 1e5.toLong
 
+  val defaultMaxReadsIncrement = 10000
+
 
   def main(args: Array[String]): Unit = {
 
@@ -34,6 +36,7 @@ object M1Test {
     val keyCount = if(args.length>=1) args(0).toInt else defaultKeyCount
     val duration = if(args.length>=2) args(1).toLong else defaultDuration
     val shardCount = if(args.length>=3) args(2).toInt else defaultShardCount
+    val maxReads = if(args.length>=4) args(3).toInt else defaultMaxReadsIncrement
 
     val dir = TestUtils.tempDir()
 
@@ -98,12 +101,17 @@ object M1Test {
 
           //verify store
           store.rollbackVersions().toBuffer.drop(initRollbackVersionsSize) shouldBe history.map(fromLong(_))
+
+          val increment = Math.max(1.0, 1.0*keyCount/maxReads).toInt
           //iterate over all keys in ref  file, ensure that store content is identical
           for (offset <- 0 until keyCount) {
             val seed = refFile.get(offset)
             val value = if (seed == 0) None else Some(valueFromSeed(seed))
-            val key = fromLong(offset)
-            store.get(key) shouldBe value
+            if (offset % increment == 0) {
+              val key = fromLong(offset)
+              // only check Nth elements
+              store.get(key) shouldBe value
+            }
           }
 
           println("Ver: " + history.size + " - disk size: " + dirSizeGiga())
