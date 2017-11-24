@@ -9,6 +9,7 @@ import java.nio.file.StandardOpenOption
 import io.iohk.iodb.{ByteArrayWrapper, ShardedStore, Store, TestUtils}
 import io.iohk.iodb.Store._
 import TestUtils._
+import io.iohk.iodb.Utils._
 
 import scala.util.Random
 import org.scalatest.Matchers._
@@ -55,7 +56,7 @@ object M1Test {
       //insert initial data
       for (i <- 0L until keyCount by batchSize) {
         val value = valueFromSeed(1)
-        val keyVals = (i until Math.min(keyCount, i + batchSize)).map(k => (fromLong(k), value))
+        val keyVals = (i until Math.min(keyCount, i + batchSize)).map(k => (fromLong(longHash(k)), value))
 
         store.update(versionID = fromLong(-i), toUpdate = keyVals, toRemove = Nil)
       }
@@ -108,7 +109,7 @@ object M1Test {
             val seed = refFile.get(offset)
             val value = if (seed == 0) None else Some(valueFromSeed(seed))
             if (offset % increment == 0) {
-              val key = fromLong(offset)
+              val key = fromLong(longHash(offset))
               // only check Nth elements
               store.get(key) shouldBe value
             }
@@ -171,7 +172,7 @@ object M1Test {
       var seed = r.nextInt().toByte
       if(seed==0) seed=1
       ref.put(k, seed) //update reference file
-      (fromLong(k), valueFromSeed(seed))
+      (fromLong(longHash(k)), valueFromSeed(seed))
     }
 
     //find some keys for deletion
@@ -180,7 +181,7 @@ object M1Test {
       .filter(!keys.contains(_))
       .toSet.toBuffer.sorted.map { k =>
       ref.put(k, 0) //update reference file
-      fromLong(k)
+      fromLong(longHash(k))
     }
 
     (keyVals, keysToRemove)

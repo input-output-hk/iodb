@@ -310,4 +310,10 @@ public class Utils {
         return ret;
     }
 
+
+    public static long longHash(long h) {
+        return  h * -7046029254386353131L;
+    }
+
+
 }
