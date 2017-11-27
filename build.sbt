@@ -4,9 +4,9 @@ organization := "org.scorexfoundation"
 
 name := "iodb"
 
-version := "0.3.1"
+version := "0.4.0"
 
-scalaVersion := "2.12.2"
+scalaVersion := "2.12.3"
 
 libraryDependencies ++= Seq(
   "com.google.guava" % "guava" % "19.0",
