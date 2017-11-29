@@ -1,6 +1,19 @@
 0.4 release
 ----------------
 
+- Rewrite LogStore and ShardedStore (former LSMStore)
+
+- Reduce internal state to fix concurrency issues
+
+- Change design and compaction model. Journal is now source of durability, rather than short term cache
+
+- Added background threads and background compaction
+
+Issues:
+
+- See [list on github](https://github.com/input-output-hk/iodb/issues?q=is%3Aissue+is%3Aopen+label%3A0.5) targeted for `0.5` release
+
+
 
 0.3.1
 ----------------
