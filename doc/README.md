@@ -14,7 +14,7 @@ Main features include:
 Updates
 ----------
 
-All updates are grouped into batch. 
+All updates are grouped into batches.
 Each update creates new snapshot with unique `VersionID`
 Example update is [here](https://github.com/input-output-hk/iodb/tree/master/src/test/scala/examples/Update.scala).
 

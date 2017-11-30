@@ -142,6 +142,8 @@ class ShardedStore(
   }
 
   override def rollback(versionID: VersionID): Unit = {
+    //TODO: there is a race condition between rolling back shards and updating journal
+
     distributeLock.lock()
     journal.appendLock.lock()
     try {
