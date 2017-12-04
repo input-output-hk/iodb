@@ -25,6 +25,11 @@ Here are some basic terms
     - rollback or Compaction can reorganize sequence of updates
     - search follows link to previous update in Log Entry, rather than sequentially traversing log file in reverse order
 
+
+FIG log 
+
+FIG indirect log
+
 ### State of store
 - content of store for given VersionID (or most recent update)
 - all key-value pairs in store
@@ -36,6 +41,7 @@ Here are some basic terms
     - it is special type of value
     - in binary storage is indicated by value with length `-1`
 - Compaction eventually removes tombstones from store and reclaims the disk space
+
 
 ### VersionID
 - Each Update takes VersionID as a parameter
@@ -74,6 +80,8 @@ Here are some basic terms
 - No random IO, as all reads are sequential and all writes are append-only.
 
 
+FIG merge iterator
+
 ### Merge in log
 
 As the number of updates grows and the linked-list gets longer, Find Key operation will become slow
@@ -92,6 +100,10 @@ which runs on the background in a separate thread.
 - 0.4 serializes Merge Entry into `byte[]` using `ByteArrayOutputStream`
     - it can run out of memory
     - temporary file should be used instead
+
+FIG log before merge
+
+FIG log after merge
 
 ### Shards
 
@@ -123,6 +135,8 @@ Over time data (key-value pairs) move following way:
 - Shard Merge tasks select longest Shard and merges content from multiple Update Entries into single Merge Entry
 
 
+FIG data flow after modification
+
 ### find key (get)
 
 `Store.get()` returns value associated with the key, or `None` if key is not found
@@ -134,6 +148,8 @@ Over time data (key-value pairs) move following way:
     - key is found
     - Merge Entry is found in Shard
     - end of Shard is reached
+
+FIG find key
 
 
 ### get all
@@ -153,7 +169,7 @@ Content is merged in a following way:
     - Shard and Journal content is merged on single iteration
 
 
-
+FIG get all
 
 
 
@@ -185,6 +201,7 @@ Rollback is performed in following way
 - insert Offset Alias Log Entry into journal
 - rollback Shards into state found in Distribe Entry
 
+FIG state of log after rollback
 
 
 Shards
@@ -216,10 +233,9 @@ Shards
     - dynamic Sharding was in 0.3 release, but caused concurrency issues
 
 
+FIG shard splitting dymamic allocation
 
-
-
-
+FIG shard splitting static allocation 
 
 
 
@@ -259,9 +275,34 @@ File handles and File IO
     - sync; flush write cache on file (temp files are not flushed)
     - binary search read
 
+- IODB keeps number of files open
+    - one writeable handle to append to Journal
+    - one readonly handle for each file
+
+- File handle is limited resource
+    - by default only 64K handles are allowed per process on Linux
+    - exhausting file handles can cause JVM to crash (it can not open DLLs or JAR files)
+
+- IODB keeps file handles in `LogStore.fileHandles` map
+
+- File handle can be `FileChannel` or `MappedByteBuffer` depending on implementation
 
 
-- file handles
+- 0.4 release uses `FileChannel` to perform binary search, but this is slow
+    - future version should use memory mapped files, or `sun.misc.Unsafe` to perform search
+    - this can speedup search 10x
+    - but it also has various problems outlined [in this blog post](http://www.mapdb.org/blog/mmap_files_alloc_and_jvm_crash/)
+
+- file delete
+    - IODB needs to delete outdated files
+    - files can not be deleted while it is opened for reading (race condition)
+        - other threads could fail, while reading data from store
+        - memory mapped file crashes (segfault) when accessing unmapped buffer
+    - there is semaphore for each file
+        - it protects file from deletion while it is read from
+        - each read operation needs to lock files it will use
+        - see `LogStore.fileSemaphore` for details
+
 - mmap files and close
     - file locking for read & delete
 
@@ -287,15 +328,16 @@ Background Operations
 - triggered when number of updates in journal is over limit
     - TODO perhaps trigger by space consumed by updates, rather by their count
 
+FIG distribute task
+
 ### Compact Task
 
 - triggered every N second
 - finds shard with most unmerged updates
 
+### File Shring Task
 
-
-
-
+FIG shring file
 
 
 Concurrency
