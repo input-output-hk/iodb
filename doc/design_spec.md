@@ -26,9 +26,10 @@ Here are some basic terms
     - search follows link to previous update in Log Entry, rather than sequentially traversing log file in reverse order
 
 
-FIG log 
+![Log before merge](img/spec/log-before-merge.jpg)
 
-FIG indirect log
+![Log after rollback](img/spec/log-after-rollback.jpg)
+
 
 ### State of store
 - content of store for given VersionID (or most recent update)
@@ -80,7 +81,8 @@ FIG indirect log
 - No random IO, as all reads are sequential and all writes are append-only.
 
 
-FIG merge iterator
+![Merge iterator](img/spec/merge-iterator.jpg)
+
 
 ### Merge in log
 
@@ -101,9 +103,12 @@ which runs on the background in a separate thread.
     - it can run out of memory
     - temporary file should be used instead
 
-FIG log before merge
+![Log before merge](img/spec/log-before-merge.jpg)
 
-FIG log after merge
+
+
+![Log after merge](img/spec/log-after-merge.jpg)
+
 
 ### Shards
 
@@ -135,7 +140,8 @@ Over time data (key-value pairs) move following way:
 - Shard Merge tasks select longest Shard and merges content from multiple Update Entries into single Merge Entry
 
 
-FIG data flow after modification
+![Data flow](img/spec/data-flow.jpg)
+
 
 ### find key (get)
 
