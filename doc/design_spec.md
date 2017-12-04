@@ -4,6 +4,102 @@ IODB design specification
 This document outlines design and implementation of IODB database at 0.4 release.
 
 
+
+
+Basic terms
+-----------
+
+This spec assumes basic knowledge of log structured stores.
+Here are some basic terms
+
+### Log
+- Log is sequence of updates organized by time
+    - This sequence might not follow actual organization of data, it can be reorganized by rollback or compaction
+- Log can be spread over multiple files.
+- Each Log Entry contains:
+    - list of update keys
+    - list of deleted keys (see tombstone)
+    - link to previous update
+
+- Key-Value pair is found by traversing Log until key is found
+    - rollback or Compaction can reorganize sequence of updates
+    - search follows link to previous update in Log Entry, rather than sequentially traversing log file in reverse order
+
+### State of store
+- content of store for given VersionID (or most recent update)
+- all key-value pairs in store
+
+### Tombstone
+
+- Already inserted data are immutable. It is not possible to delete keys directly from store.
+- Deleted keys are indicated by **tombstone** marker
+    - it is special type of value
+    - in binary storage is indicated by value with length `-1`
+- Compaction eventually removes tombstones from store and reclaims the disk space
+
+### VersionID
+- Each Update takes VersionID as a parameter
+- Each Update creates snapshot of data
+- This snapshot is identified (and can be reverted to) by `byte[]` identifier
+
+### Binary Search
+
+- Keys in each update entry are sorted
+- To find a key binary search is used
+- It compares `byte[]` (or `ByteArrayWrapper`) with content of file
+- All keys have equal size, that simplifies the search significantly
+- 0.4 version uses `FileChannel` which is very slow
+    - memory mapped file can speedup binary search 10x
+    - unsafe file access is even faster
+
+
+### Merge iterator
+
+- state of store (all key-value pairs) is reconstructed by replaying all updates from start to end
+- easiest way is to traverse log and insert key-value pairs into  in-memory `HashMap`
+    - that consumes too much memory
+
+- IODB uses Merge iterator (lazy-N-way merge) instead
+
+- Inside each Update Entry (such as V1, V2...), keys are stored in sorted order.
+
+- Compaction reads content of all  Updates  in parallel, and produces the result by comparing keys from all updates.
+
+- The time complexity is `O(N*log(U))`, where `N` is the total number of keys in all Updates and `U` is the number of Updates (versions) in merge.
+
+- Compaction is streaming data; it never loads all keys into memory. But it needs to store `U` keys in memory for comparison.
+
+- If `U` is too large, the compaction process can be performed in stages.
+
+- No random IO, as all reads are sequential and all writes are append-only.
+
+
+### Merge in log
+
+As the number of updates grows and the linked-list gets longer, Find Key operation will become slow
+Also obsolete versions of keys are causing space overhead.
+
+Both problems are solved by merging older updates into a single update.
+The merge is typically performed by a compaction process,
+which runs on the background in a separate thread.
+
+- Merge process takes N Updates
+    - from most recent
+    - until previous Merge Entry or start of the log
+- It produces Merge Iterator over this data set
+- It inserts current state of store into Log Entry
+
+- 0.4 serializes Merge Entry into `byte[]` using `ByteArrayOutputStream`
+    - it can run out of memory
+    - temporary file should be used instead
+
+### Shards
+
+- If store contains too many Key-Value pairs, Merge or binary search becomes slow
+- So the store is split into Shards, each Shard is compacted and managed separately
+- Newer data are stored in single log (Journal) latter moved into Shards
+
+
 Data lifecycle
 ------------------
 
@@ -57,6 +153,20 @@ Content is merged in a following way:
     - Shard and Journal content is merged on single iteration
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 Rollback
 ----------
 
@@ -77,7 +187,8 @@ Rollback is performed in following way
 
 
 
-### Shards
+Shards
+------
 
 - binary search on large tables is slow, also compaction on large tables is slow
 - only most recent data are stored in Journal
@@ -85,7 +196,7 @@ Rollback is performed in following way
 - there is Distribute Task, it takes data from Journal and distributes them into Shards
 
 
-#### Shard Splitting
+### Shard Splitting
 
 - ideally Shards should be created dynamically
     - small or empty store starts with single shards
@@ -105,9 +216,61 @@ Rollback is performed in following way
     - dynamic Sharding was in 0.3 release, but caused concurrency issues
 
 
-File access and IO
-------------------
 
+
+
+
+
+
+
+
+File naming
+----------------------
+
+- Log is composed of multiple files
+- IODB stores data in directory
+    - this dir contains multiple logs (Journal and Shards)
+    - it also contains temporary files
+
+- Each file has prefix, file ID and suffix
+
+- Prefix identifies type of file (journal, shard, temp)
+    - It also assigns file into its Log (Journal or Shard)
+
+- File ID gives position of file within log
+    - TODO File ID should have two parts; log file position and file version
+
+- Suffix is not used
+    - TODO drop suffix or use it to identify temp files
+
+
+- Temporary files are used
+    - To produce merged result during compaction and distribute (TODO currently uses `byte[]`)
+    - To store large updates
+    - To store result of `getAll()` operation (TODO currently loaded into in-memory `TreeMap`)
+
+
+
+File handles and File IO
+------------------------
+
+- IODB performs following IO operations on files
+    - append at end of the file
+    - sync; flush write cache on file (temp files are not flushed)
+    - binary search read
+
+
+
+- file handles
+- mmap files and close
+    - file locking for read & delete
+
+- remap file when it grows
+
+- unsafe file access
+    - jvm crash & read only file
+
+- binary search performance
 
 
 
@@ -121,7 +284,17 @@ Background Operations
 
 ### Distribute Task
 
+- triggered when number of updates in journal is over limit
+    - TODO perhaps trigger by space consumed by updates, rather by their count
+
 ### Compact Task
+
+- triggered every N second
+- finds shard with most unmerged updates
+
+
+
+
 
 
 
@@ -139,6 +312,10 @@ Concurrency
 - distribute task
 
 ### Merge task
+
+
+
+
 
 
 Source code overview
@@ -177,6 +354,12 @@ Source code overview
 
 
 
+
+
+
+
+
+
 File format overview
 -----------------------
 
@@ -191,8 +374,23 @@ In short log can contain following types of entries:
 - **offset alias log entry** - inserted by Rollback or Compaction Task. It replaces Update Entry with new one. For example after compaction the most recent update is replaced by Compacted Entry.
 
 
+
+
+
+
+
+
+
+
+
+
+
 Unit tests
 -------------------
+
+Unit tests are organized in following packages:
+
+XXX
 
 
 Issues
@@ -205,3 +403,86 @@ Issues
 - serialize update into `byte[]`
 
 - compaction is slow
+
+
+- memory leak in
+
+
+
+
+
+
+
+Mutable global variables in ShardedStore
+----------------------------------------
+
+Ideally store would keep zero state outside of file.
+But that would mean each read operation would have to replay all journal modifications,
+to find most recent Update.
+For that Store contains some mutable variables.
+
+### journalUpdateCounter
+TODO merge this with `journal.umergedUpdatesCounter`
+
+### Variables in journal
+
+
+
+#### eofPos
+
+#### validPos
+
+#### unmergedUpdatesCounter
+
+- restored by replay
+
+#### offsetAliases
+
+
+#### Variables in each shard
+
+
+#### eofPos
+
+#### validPos
+
+#### unmergedUpdatesCounter
+- restored by replay, but shards are not replayed on reopen
+
+
+#### offsetAliases
+
+
+
+
+
+
+
+
+
+
+
+Internal state and concurrency
+------------------------------
+
+here is list of operations which modify internal state (files and Store internal variables.
+and how those are protected from race conditions and deadlocks
+
+
+### Update
+- TODO start new file only in distribute/merge?
+
+
+### Open File
+
+### Distribute Task
+- start new file conditions
+
+### Shard Merge Task
+- start bew file
+
+### File Compaction Task
+
+### Rollback
+
+### Clean and file delete
