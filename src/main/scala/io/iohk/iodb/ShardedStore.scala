@@ -17,10 +17,10 @@ class ShardedStore(
                     val keySize: Int = 32,
                     val shardCount: Int = 20,
                     //unlimited thread executor, but the threads will exit faster to prevent memory leak
-                    val executor:Executor = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 1, TimeUnit.SECONDS, new SynchronousQueue[Runnable]())
-                  )extends Store {
+                    val executor: Executor = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 1, TimeUnit.SECONDS, new SynchronousQueue[Runnable]())
+                  ) extends Store {
 
-  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal", executor=null)
+  val journal = new LogStore(keySize = keySize, dir = dir, filePrefix = "journal", executor = null)
 
 
   val shards = new java.util.TreeMap[K, LogStore]()
@@ -34,35 +34,35 @@ class ShardedStore(
   assert(shardCount > 0)
   for (i <- 0 until shardCount) {
     val key = ByteArrayWrapper(Utils.shardPrefix(shardCount, i, keySize))
-    val shard = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard_" + i + "_", executor=null, compactEnabled = false)
+    val shard = new LogStore(keySize = keySize, dir = dir, filePrefix = "shard_" + i + "_", executor = null, compactEnabled = false)
     shards.put(key, shard)
   }
 
-  if(executor!=null){
-    def waitForStart(): Unit ={
+  if (executor != null) {
+    def waitForStart(): Unit = {
       //wait initial time until store is initialized
       var count = 60
-      while(count>0 && !isClosed){
-        count-=1
+      while (count > 0 && !isClosed) {
+        count -= 1
         Thread.sleep(1000)
       }
     }
 
     //start background compaction task
-    executor.execute(runnable{
+    executor.execute(runnable {
       waitForStart()
       //start loop
-      while(!isClosed) {
+      while (!isClosed) {
         try {
           //find the most fragmented shard
-          val shard:LogStore = shards.values().asScala
-            .map{s=> (s, s.unmergedUpdates.get())}
+          val shard: LogStore = shards.values().asScala
+            .map { s => (s, s.unmergedUpdatesCounter.get()) }
             .toBuffer
-            .sortBy{s:(LogStore,Long)=>s._2}
+            .sortBy { s: (LogStore, Long) => s._2 }
             .reverse.head._1
-          if(shard.unmergedUpdates.get>4) {
+          if (shard.unmergedUpdatesCounter.get > 4) {
             shard.taskCompact()
-          }else{
+          } else {
             Thread.sleep(100)
           }
         } catch {
@@ -71,14 +71,14 @@ class ShardedStore(
       }
     })
 
-    executor.execute(runnable{
+    executor.execute(runnable {
       waitForStart()
-      while(!isClosed) {
+      while (!isClosed) {
         try {
-          if(updateCounter.incrementAndGet()>10) {
-            updateCounter.set(0)
+          if (journalUpdateCounter.incrementAndGet() > 10) {
+            journalUpdateCounter.set(0)
             taskDistribute()
-          }else{
+          } else {
             Thread.sleep(100)
           }
         } catch {
@@ -89,7 +89,7 @@ class ShardedStore(
   }
 
 
-  val updateCounter = new AtomicLong(0)
+  val journalUpdateCounter = new AtomicLong(0)
 
   override def get(key: K): Option[V] = {
     assert(key.size > 7)
@@ -111,7 +111,7 @@ class ShardedStore(
     //FIXME content is loaded to heap
     val (data, shardEntry) = journal.getAllDistribute()
 
-    if(shardEntry!=null) {
+    if (shardEntry != null) {
       shardEntry.shards.asScala.foreach { a =>
         val shardKey = a._1
         val shardPos = a._2
@@ -150,27 +150,27 @@ class ShardedStore(
       journal.rollback(versionID)
       //find last distribute entry
       val offsets = journal.loadUpdateOffsets(stopAtMerge = false, stopAtDistribute = false)
-      val distOffsets = offsets.filter(_.entryType==LogStore.headDistributeFinished)
-     // println(distOffsets.toBuffer)
+      val distOffsets = offsets.filter(_.entryType == LogStore.headDistributeFinished)
+      // println(distOffsets.toBuffer)
       //if there is some, load its version ID and rollback all shards
-      if(!distOffsets.isEmpty) {
+      if (!distOffsets.isEmpty) {
         val de = journal.loadDistributeEntry(distOffsets.head.pos)
-        shards.asScala.foreach { a=>
+        shards.asScala.foreach { a =>
           val shardKey = a._1
           val shard = a._2
           val shardOffset = de.shards.get(shardKey)
           shard.rollbackToOffset(shardOffset)
         }
-      }else{
+      } else {
         //there is no distr entry, so remove all content from shards
         shards.values().asScala.foreach { s =>
           s.rollbackToZero()
           assert(s.getAll().isEmpty)
-          assert(s.lastVersionID==None)
+          assert(s.lastVersionID == None)
         }
 
       }
-    }finally{
+    } finally {
       journal.appendLock.unlock()
       distributeLock.unlock()
     }
@@ -182,7 +182,7 @@ class ShardedStore(
       isClosed = true
       journal.close()
       shards.values().asScala.foreach(_.close())
-    }finally{
+    } finally {
       distributeLock.unlock()
     }
   }
@@ -200,7 +200,7 @@ class ShardedStore(
   def taskDistribute(): Unit = {
     distributeLock.lock()
     try {
-      if(isClosed)
+      if (isClosed)
         return
 
       val (prev, pos) = journal.appendDistributePlaceholder()
@@ -222,7 +222,7 @@ class ShardedStore(
         if (dataset.isEmpty)
           return
 
-        val tmpFile = new File(dir, "distribute"+System.currentTimeMillis())
+        val tmpFile = new File(dir, "distribute" + System.currentTimeMillis())
         var out1 = new FileOutputStream(tmpFile)
         var out2 = new DataOutputStream(new BufferedOutputStream(out1))
         assert(tmpFile.exists())
@@ -232,12 +232,13 @@ class ShardedStore(
 
         val distributeEntryContent = new ArrayBuffer[(K, FilePos)]
 
-        def appendPair(next:(K,V)){
+        def appendPair(next: (K, V)) {
           def isTomb = next._2 eq Store.tombstone
+
           out2.writeInt(next._1.size)
-          out2.writeInt(if(isTomb) -1 else next._2.size)
+          out2.writeInt(if (isTomb) -1 else next._2.size)
           out2.write(next._1.data)
-          if(!isTomb)
+          if (!isTomb)
             out2.write(next._2.data)
         }
 
@@ -256,28 +257,28 @@ class ShardedStore(
           out2.close()
           out1.close()
 
-          object iter extends Iterable[(K,V)]{
-            override def iterator():Iterator[(K,V)] = {
+          object iter extends Iterable[(K, V)] {
+            override def iterator(): Iterator[(K, V)] = {
               var in0 = new FileInputStream(tmpFile)
               val in = new DataInputStream(new BufferedInputStream(in0))
 
-              object i extends Iterator[(K,V)] {
+              object i extends Iterator[(K, V)] {
 
-                var _next:(K,V) = null
+                var _next: (K, V) = null
 
-                override def hasNext = _next!=null
+                override def hasNext = _next != null
 
-                override def next():(K,V) = {
+                override def next(): (K, V) = {
                   val ret = _next;
-                  if(_next==null)
+                  if (_next == null)
                     throw new NoSuchElementException()
 
                   advance()
                   return ret
                 }
 
-                def advance(): Unit ={
-                  if(in0 == null){
+                def advance(): Unit = {
+                  if (in0 == null) {
                     _next = null
                     return
                   }
@@ -297,8 +298,8 @@ class ShardedStore(
                       in.readFully(value.data)
 
                     _next = (key, value)
-                  }catch{
-                    case eof:EOFException =>{
+                  } catch {
+                    case eof: EOFException => {
                       //TODO better way to check for EOF
                       in0.close() // release file resources
                       in0 = null
@@ -319,7 +320,7 @@ class ShardedStore(
 
           out1 = new FileOutputStream(tmpFile)
           out2 = new DataOutputStream(new BufferedOutputStream(out1))
-          assert(tmpFile.length()==0)
+          assert(tmpFile.length() == 0)
 
           //next belongs to next shard
           if (next != null) {
@@ -347,14 +348,14 @@ class ShardedStore(
         // insert alias, so , so it points to prev
         journal.appendFileAlias(pos.fileNum, pos.offset, pos2.fileNum, pos2.offset, updateEOF = true)
 
-        journal.unmergedUpdates.set(0)
+        journal.unmergedUpdatesCounter.set(0)
       } finally {
         for ((fileNum, fileHandle) <- files) {
           if (fileHandle != null)
             journal.fileUnlock(fileNum)
         }
       }
-    }finally{
+    } finally {
       distributeLock.unlock()
     }
   }
