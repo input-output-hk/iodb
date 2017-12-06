@@ -28,7 +28,6 @@ Here are some basic terms
 
 ![Log before merge](img/spec/log-before-merge.jpg)
 
-![Log after rollback](img/spec/log-after-rollback.jpg)
 
 
 ### State of store
@@ -155,14 +154,16 @@ Over time data (key-value pairs) move following way:
     - Merge Entry is found in Shard
     - end of Shard is reached
 
-FIG find key
+
+![find key](img/spec/find-key.jpg)
 
 
 ### get all
 
-`Store.getAll()` returns content of store (all key-value pairs) for given `VersionID`.
+`Store.getAll()` returns content of store (all key-value pairs) for given `VersionID` (or msot recent version).
 
-Content is merged in a following way:
+Store content is spread over journal, shards, multiple files.
+So the dataset is produced by iterating over multiple files, and using lazy-N-way merge iterator:
 
 - traverse Journal until Distribute Placeholder is found
 - take all data in Journal from VersionID until Distribute Placeholder
@@ -174,19 +175,7 @@ Content is merged in a following way:
     - Journal content is sorted
     - Shard and Journal content is merged on single iteration
 
-
-FIG get all
-
-
-
-
-
-
-
-
-
-
-
+![get all](img/spec/get-all.jpg)
 
 
 Rollback
@@ -207,7 +196,8 @@ Rollback is performed in following way
 - insert Offset Alias Log Entry into journal
 - rollback Shards into state found in Distribe Entry
 
-FIG state of log after rollback
+
+![Log after rollback](img/spec/log-after-rollback.jpg)
 
 
 Shards
@@ -237,11 +227,7 @@ Shards
         - this is hardcoded into store and can not be changed
     - key space is sliced at constant interval
     - dynamic Sharding was in 0.3 release, but caused concurrency issues
-
-
-FIG shard splitting dymamic allocation
-
-FIG shard splitting static allocation 
+on
 
 
 
@@ -294,11 +280,6 @@ File handles and File IO
 - File handle can be `FileChannel` or `MappedByteBuffer` depending on implementation
 
 
-- 0.4 release uses `FileChannel` to perform binary search, but this is slow
-    - future version should use memory mapped files, or `sun.misc.Unsafe` to perform search
-    - this can speedup search 10x
-    - but it also has various problems outlined [in this blog post](http://www.mapdb.org/blog/mmap_files_alloc_and_jvm_crash/)
-
 - file delete
     - IODB needs to delete outdated files
     - files can not be deleted while it is opened for reading (race condition)
@@ -309,15 +290,29 @@ File handles and File IO
         - each read operation needs to lock files it will use
         - see `LogStore.fileSemaphore` for details
 
-- mmap files and close
-    - file locking for read & delete
 
-- remap file when it grows
+Memory mapped files
+-------------------
 
-- unsafe file access
-    - jvm crash & read only file
+- Current version (0.4) uses `FileChannel` to read files
+    - that is very slow for binary search,
+    - file caching does not work efficiently
+    - `FileChannel` requires seeks and uses extra translation layer
 
-- binary search performance
+- better way is to use memory mapped files
+    - it maps file into memory address space, reads do not require translation
+    - binary search is very efficient (10x) faster
+    - caching works very well
+
+
+- memory mapped (mmap) files have some downsides. Those are outlined [in this blog post](http://www.mapdb.org/blog/mmap_files_alloc_and_jvm_crash/)
+    - JVM has no official way to close (unmap) mmap files
+        - file handle is closed after GC, that can cause JVM process to run out of file handles
+    - there is a hack to close mmap file forcibly
+        - it is not supported in all JVMs (Java 9, Android etc are different)
+        - after unmapping, mmap file can not be read from, it causes access to illegal address and JVM process crashes with SEGFAULT
+
+- memory mapped files can be speedup even more by replacing `byte[]` with primitive `long` for binary search
 
 
 
@@ -325,84 +320,157 @@ File handles and File IO
 Background Operations
 --------------------------
 
-- background executors versus manual execution
--
+- IODB performs various maintenance tasks on background
+
+- background task are scheduled automatically in `Executor`
+    - see `executor` constructor parameter at `ShardedStore` and `LogStore`
+    - if you set `executor` param to null, background tasks are disabled
+        - in that case user should perform compaction by calling background tasks directly
+        - see `task*()` methods at `ShardedStore` and `LogStore`
+
+
+IODB performs following tasks
 
 
 ### Distribute Task
 
-- triggered when number of updates in journal is over limit
-    - TODO perhaps trigger by space consumed by updates, rather by their count
+- distribute task moves data from Journal into Shards
+- it is triggered when number of updates in journal is over limit (see `ShardedStore#journalUpdateCounter`)
+    - update count is since last merge, not total count
+    - TODO it should be triggered if total space of undistributed updates is over limit, not update count
+- can be triggered manually with `ShardedStore.taskDistribute()`
 
-FIG distribute task
+Distribute tasks works in following way:
+
+- insert Distribute Placeholder Log Entry into journal
+    - this is to prevent race conditions, journal might be updated while Distribute Task runs
+- iterate over Journal Updates, produce list of all updates since previous Distribute Placeholder
+- produce iterator over data in Journal Updates
+- slice content of iterator into shards
+    - only single pass is needed, lazy-N-way merge produces sorted result
+    - each Shard is updated with single update
+- Journal is updated with Distribute Log Entry
+    - it contains pointers to latest updates in Shards
+- Distribute Placeholder is replaced by final version of Distribute Log Entry
+    - Offset Alias is inserted into journal
+
+
+
 
 ### Compact Task
 
-- triggered every N second
-- finds shard with most unmerged updates
+- Distribute Task merges multiple Update Entries into single Merge Entry
+- it makes Shards faster and releases unused version data
+- it is triggered when number of unmerged updates in Shard is over limit (see `LogStore.umergedUpdatesCounter`)
 
-### File Shring Task
+- can be triggered manually by `LogStore.taskCompact()`
+    - TODO expose this in `ShardedStore` as well
 
-FIG shring file
+It works in following way:
 
-
-Concurrency
------------
-
-
-### Internal State
-
-#### File reopen (restore internal state)
-
-### Atomicity
-### Rollback
-### Distribute task
-- distribute task
-
-### Merge task
+- `ShardedStore` runs background task
+    - every N seconds it selects most fragmented Shard
+    - if number of unmerged Update Entries (since last merge) is over limit, it calls `LogStore.taskCompact()` on this Shard
+- In LogStore it selects Most Recent Update
+- It traverses Update Entries until it reaches previous Merge Entry (or start of log)
+- It produces merge iterator over all updates in Shard
+- It inserts merged content of Update Entries as new Merge Log Entry into Shard
+- It replaces Most Recent Update with Merge Entry by using Offset Alias
 
 
+### File Shrink Task
 
+This tasks replaces old file with new one, and reclaims space in file. It is not present in 0.4 release
+
+TODO current design (0.4) is not very effective to reclaim space released by rollback.
+
+TODO FIG shrink file
 
 
 
 Source code overview
 ------------------------
 
+Some notes:
 
-### ShardedStore
+- key, values and VersionIds in IODB are represented as `byte[]`
+    - for practical purposes (hash,comparable) `ByteArrayWrapper` is used
 
-#### parameters
-
-- dir
-- keySize
-- shard count
-- executor
-
-#### Concurrency
-
-- distributeLock
-
-#### journal
-#### locks and executors
-#### taskMerge
+- Basic interface is `Store`
+    - it is dictionary that maps key to value
 
 
-
-### LogStore
-
-### serialize methods
-### append methods
-
-
-### QuickStore
-
-
-### Utils
+### Quick Store
+- it stores all data in memory
+    -uses sorted map
+- is used as a reference for writing unit tests (other stores should pass the same criteria as simple implementation does)
+- uses simple `ReadWriteLock` for thread safety
+- can store data on disk using log file
+- rollback method replays updates in reverse order
+- when opened it replays log file to reconstruct current state (all key-value pairs) into SortedMap
 
 
+### Log Store
+
+- `LogStore` stores all data in multiple log files
+- it uses binary search to find keys
+- this class is used for Journal and Shard in `ShardedStore`
+- it has background operation that merges multiple Update Entries
+    - merge operation uses lazy-N-way merge iterator, so it does not load all entries into heap
 
 
+- `serialize*()` methods convert updates and other modifications into their binary representation
+    - `byte[]` is used right now
+    - TODO use temporary files, large updates can cause OOEM exceptions
+
+- `LogStore#append` will take binary data and append it to end of the file
+
+#### concurrency
+
+- `LogStore` is thread safe, but does not have a global lock
+- it maintains most state in file
+
+- there is a race condition in file deletion
+    - if file is deleted while other thread is reading it, it could cause JVM to crash (see memory mapped files)
+    - to prevent that we use file semaphore
+    - read operation must lock files it will use
+        - delete operation is performed on background, and will not remove files that are locked for reading
+    - see `fileSemaphore` and `fileToDelete` fields
+
+- there is a race condition in file append (expand log file)
+    - multiple writers should be allowed at the same time, but there is only single file
+    - ideally the content of update should be written into temporary file, and latter transferred into log using `FileChannel.transferFrom()` (avoids CPU cache)
+    - in 0.4 release append lock is used, so LogStore does not handle concurrent updates
+
+- there is a race condition between `Store.get()` and `Store.update()`
+    - `Store.get()` obtains last log file offset from atomic variable, and works with that
+        - it can not see future updates
+
+#### Background tasks
+
+- `LogStore` has only one background task
+- it merges multiple Updates into single Merge entry
+- can be invoked manually with `LogStore.taskCompact()`
+
+### Sharded Store
+
+`ShardedStore` is combination of multiple logs (`LogStore`).
+It is composed of Journal and Shards, all are represented by `LogStore`.
+
+- newer data are in Journal
+- data are moved into Shards by distribute task
+- Sharded Store controls compaction of Shards
+
+### Concurrency
+
+
+- there is a race condition between rollback and distribute task
+    - in 0.4 release rollback operation uses `distributeLock` so the distribute task and rollback can not run at the same time
+
+- there is a race condition between update and distribute task
+    - it is solved by using two Distribute Log Entries
+        - Distribute Task inserts Distribute Placeholder Log Entry into Journal
+        - that is latter replaced by Distribute Log Entry
 
 
 
@@ -428,109 +496,39 @@ In short log can contain following types of entries:
 
 
 
-
-
-
-
-
 Unit tests
 -------------------
 
-Unit tests are organized in following packages:
-
-XXX
-
-
-Issues
-------
-
--
-
-- getAll() loads all data on heap, use merge iterator
-
-- serialize update into `byte[]`
-
-- compaction is slow
+- IODB uses JUnit 4 runner to run unit tests
+    - test written in ScalaTest should extend `org.scalatest.junit.JUnitSuite`
 
 
-- memory leak in
+#### io.iohk.iodb package
+- contains normal unit tests
+- there is abstract `StoreTest which tests general contract of `Store` interface
+    - it has `QuickStoreRefTest`, `LogStoreTest` and `ShardedStoreTest` subclasses
+- most tests extends `TestWithTempDir` class that creates and deletes temporary directory
+
+### bench package
+- contains benchmarks
+- those are not run automatically, but using `main` method
+    - from command line you can trigger it using following command line `sbt 'test:run-main io.iohk.iodb.bench.ClassName'`
+
+### prop package
+- properties testing
+- generates random data and tries to break store
+
+### smoke
+- integration tests
+- generates random data and tries to break store
+- there is `M1Test` which is acceptance test for 0.4 release
 
 
-
-
-
-
-
-Mutable global variables in ShardedStore
-----------------------------------------
-
-Ideally store would keep zero state outside of file.
-But that would mean each read operation would have to replay all journal modifications,
-to find most recent Update.
-For that Store contains some mutable variables.
-
-### journalUpdateCounter
-TODO merge this with `journal.umergedUpdatesCounter`
-
-### Variables in journal
-
-
-
-#### eofPos
-
-#### validPos
-
-#### unmergedUpdatesCounter
-
-- restored by replay
-
-#### offsetAliases
-
-
-#### Variables in each shard
-
-
-#### eofPos
-
-#### validPos
-
-#### unmergedUpdatesCounter
-- restored by replay, but shards are not replayed on reopen
-
-
-#### offsetAliases
-
-
-
-
-
-
-
-
-
-
-
-Internal state and concurrency
-------------------------------
-
-here is list of operations which modify internal state (files and Store internal variables.
-and how those are protected from race conditions and deadlocks
-
-
-### Update
-- TODO start new file only in distribute/merge?
-
-
-### Open File
-
-### Distribute Task
-- start new file conditions
-
-### Shard Merge Task
-- start bew file
-
-### File Compaction Task
-
-### Rollback
-
-### Clean and file delete
+### Long running tests
+- by default unit tests run only short time (10 minutes) to make development easier
+- however before release full test suite should run for several days to
+    - find race condition
+    - stress test store
+    - test for memory and disk leaks
+- Long running test are trigged by `longTest=1` system property
+    - from command line use `sbt test -DlongTest=1` to run acceptance

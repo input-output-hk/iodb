@@ -44,7 +44,7 @@ case class FilePos(fileNum: FileNum, offset: FileOffset) {
 
 }
 
-/** offset withing single file, also contains log entry type */
+/** offset within single file, also contains log entry type */
 case class LogEntryPos(pos: FilePos, entryType: Byte) {
 }
 
